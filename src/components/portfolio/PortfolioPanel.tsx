@@ -148,6 +148,14 @@ onPricesChangeRef.current = onPricesChange;
         onBuy={onBuy}
         onSell={() => onSell()}
         onExportCSV={handleExportCSV}
+        onImportCSV={onImportHoldings ? async (file) => {
+          const text = await file.text();
+          const { holdings, errors } = parseHoldingsCSV(text);
+          if (errors.length) errors.slice(0, 3).forEach((e) => toast.error(e));
+          if (holdings.length === 0) { toast.error("No valid rows found"); return; }
+          onImportHoldings(holdings);
+          toast.success(`Imported ${holdings.length} holding${holdings.length === 1 ? "" : "s"}`);
+        } : undefined}
         canSell={portfolio.length > 0}
         canExport={portfolio.length > 0}
       />
