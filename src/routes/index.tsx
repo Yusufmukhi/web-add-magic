@@ -111,18 +111,33 @@ function WatchlistPage() {
         </section>
 
         <Tabs defaultValue="watchlist" className="space-y-6">
-          <TabsList className="bg-card creative:shadow-soft minimal:rounded-none minimal:border-b minimal:border-border minimal:bg-transparent minimal:p-0">
+          <TabsList className="flex flex-wrap h-auto bg-card creative:shadow-soft minimal:rounded-none minimal:border-b minimal:border-border minimal:bg-transparent minimal:p-0">
             <TabsTrigger value="watchlist" className="gap-1.5 minimal:rounded-none minimal:border-b-2 minimal:border-transparent minimal:bg-transparent minimal:data-[state=active]:border-primary minimal:data-[state=active]:bg-transparent minimal:data-[state=active]:shadow-none">
               <ListChecks className="h-3.5 w-3.5" /> Watchlist
             </TabsTrigger>
             <TabsTrigger value="portfolio" className="gap-1.5 minimal:rounded-none minimal:border-b-2 minimal:border-transparent minimal:bg-transparent minimal:data-[state=active]:border-primary minimal:data-[state=active]:bg-transparent minimal:data-[state=active]:shadow-none">
               <Briefcase className="h-3.5 w-3.5" /> Portfolio
             </TabsTrigger>
+            <TabsTrigger value="sold" className="gap-1.5 minimal:rounded-none minimal:border-b-2 minimal:border-transparent minimal:bg-transparent minimal:data-[state=active]:border-primary minimal:data-[state=active]:bg-transparent minimal:data-[state=active]:shadow-none">
+              <Archive className="h-3.5 w-3.5" /> Sold
+            </TabsTrigger>
             <TabsTrigger value="transactions" className="gap-1.5 minimal:rounded-none minimal:border-b-2 minimal:border-transparent minimal:bg-transparent minimal:data-[state=active]:border-primary minimal:data-[state=active]:bg-transparent minimal:data-[state=active]:shadow-none">
               <Receipt className="h-3.5 w-3.5" /> Transactions
             </TabsTrigger>
             <TabsTrigger value="analytics" className="gap-1.5 minimal:rounded-none minimal:border-b-2 minimal:border-transparent minimal:bg-transparent minimal:data-[state=active]:border-primary minimal:data-[state=active]:bg-transparent minimal:data-[state=active]:shadow-none">
               <LineChart className="h-3.5 w-3.5" /> Analytics
+            </TabsTrigger>
+            <TabsTrigger value="sip" className="gap-1.5 minimal:rounded-none minimal:border-b-2 minimal:border-transparent minimal:bg-transparent minimal:data-[state=active]:border-primary minimal:data-[state=active]:bg-transparent minimal:data-[state=active]:shadow-none">
+              <Repeat className="h-3.5 w-3.5" /> SIP
+            </TabsTrigger>
+            <TabsTrigger value="goals" className="gap-1.5 minimal:rounded-none minimal:border-b-2 minimal:border-transparent minimal:bg-transparent minimal:data-[state=active]:border-primary minimal:data-[state=active]:bg-transparent minimal:data-[state=active]:shadow-none">
+              <Target className="h-3.5 w-3.5" /> Goals
+            </TabsTrigger>
+            <TabsTrigger value="dividends" className="gap-1.5 minimal:rounded-none minimal:border-b-2 minimal:border-transparent minimal:bg-transparent minimal:data-[state=active]:border-primary minimal:data-[state=active]:bg-transparent minimal:data-[state=active]:shadow-none">
+              <Coins className="h-3.5 w-3.5" /> Dividends
+            </TabsTrigger>
+            <TabsTrigger value="tax" className="gap-1.5 minimal:rounded-none minimal:border-b-2 minimal:border-transparent minimal:bg-transparent minimal:data-[state=active]:border-primary minimal:data-[state=active]:bg-transparent minimal:data-[state=active]:shadow-none">
+              <FileText className="h-3.5 w-3.5" /> Tax
             </TabsTrigger>
           </TabsList>
 
