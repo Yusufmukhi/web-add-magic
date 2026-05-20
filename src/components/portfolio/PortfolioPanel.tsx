@@ -22,7 +22,7 @@ interface Props {
 
 export function PortfolioPanel({
   portfolio, transactions, cashBalance,
-  onAddFunds, onWithdraw, onBuy, onSell, onPricesChange,
+  onAddFunds, onWithdraw, onBuy, onSell, onPricesChange, onImportHoldings,
 }: Props) {
   const tickers = useMemo(() => portfolio.map((h) => h.ticker), [portfolio]);
   const quotes = useStockQuotes(tickers);
