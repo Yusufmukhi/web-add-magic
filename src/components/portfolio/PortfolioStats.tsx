@@ -6,9 +6,13 @@ interface Props {
   current: number;
   realized: number;
   cashBalance: number;
+  /** CAGR as percentage (e.g. 12.5 means 12.5%). null when not computable. */
+  cagr: number | null;
+  /** Years over which CAGR was measured. */
+  cagrYears: number | null;
 }
 
-export function PortfolioStats({ invested, current, realized, cashBalance }: Props) {
+export function PortfolioStats({ invested, current, realized, cashBalance, cagr, cagrYears }: Props) {
   const unrealized = current - invested;
   const unrealizedPct = invested > 0 ? (unrealized / invested) * 100 : 0;
   const totalPL = unrealized + realized;
@@ -19,30 +23,14 @@ export function PortfolioStats({ invested, current, realized, cashBalance }: Pro
     <div className="space-y-3">
       {/* Row 1 — Portfolio value & cash */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-        <StatCard
-          label="Total Net Worth"
-          value={formatINR(totalNetWorth)}
-          hint="Stocks + Cash"
-        />
-        <StatCard
-          label="Current Value"
-          value={formatINR(current)}
-          hint="Holdings at CMP"
-        />
-        <StatCard
-          label="Cash Balance"
-          value={formatINR(cashBalance)}
-          hint="Available to invest"
-        />
+        <StatCard label="Total Net Worth" value={formatINR(totalNetWorth)} hint="Stocks + Cash" />
+        <StatCard label="Current Value" value={formatINR(current)} hint="Holdings at CMP" />
+        <StatCard label="Cash Balance" value={formatINR(cashBalance)} hint="Available to invest" />
       </div>
 
-      {/* Row 2 — P&L breakdown */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <StatCard
-          label="Invested"
-          value={formatINR(invested)}
-          hint="Total cost basis"
-        />
+      {/* Row 2 — P&L breakdown + CAGR */}
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
+        <StatCard label="Invested" value={formatINR(invested)} hint="Total cost basis" />
         <StatCard
           label="Unrealized P&L"
           value={`${formatINR(unrealized)} (${formatNumber(unrealizedPct, 2)}%)`}
@@ -61,7 +49,14 @@ export function PortfolioStats({ invested, current, realized, cashBalance }: Pro
           tone={totalPL >= 0 ? "gain" : "loss"}
           hint="Unrealized + Realized"
         />
+        <StatCard
+          label="CAGR"
+          value={cagr == null ? "—" : `${formatNumber(cagr, 2)}%`}
+          tone={cagr == null ? undefined : cagr >= 0 ? "gain" : "loss"}
+          hint={cagrYears ? `Over ${cagrYears.toFixed(2)} yrs` : "Annualized return"}
+        />
       </div>
     </div>
   );
 }
+
