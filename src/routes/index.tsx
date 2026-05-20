@@ -127,7 +127,7 @@ function DashboardPage() {
         }
       }
     }
-    return { invested: inv, current: cur, realized: real, cagr: c };
+    return { current: cur, realized: real, cagr: c };
   }, [portfolio, portfolioPrices, transactions]);
 
   const portfolioValue = current + cashBalance;
