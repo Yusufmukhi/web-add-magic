@@ -102,7 +102,7 @@ function DashboardPage() {
     [cashBalance, addFunds, buy, tickers, add]
   );
 
-  const { invested, current, realized, cagr } = useMemo(() => {
+  const { current, realized, cagr } = useMemo(() => {
     let inv = 0, cur = 0;
     portfolio.forEach((h) => {
       const cp = portfolioPrices[h.ticker] ?? h.avgPrice;
