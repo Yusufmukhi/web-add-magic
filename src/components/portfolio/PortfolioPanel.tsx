@@ -87,6 +87,22 @@ onPricesChangeRef.current = onPricesChange;
     return { rows: computed, invested: inv, current: cur, realized: real };
   }, [portfolio, transactions, prices, quotes]);
 
+  // CAGR: based on earliest BUY transaction date and current open-holding values
+  const { cagr, cagrYears } = useMemo(() => {
+    if (invested <= 0 || current <= 0) return { cagr: null, cagrYears: null };
+    const buyDates = transactions
+      .filter((t) => t.action === "BUY" && t.date)
+      .map((t) => Date.parse(t.date))
+      .filter((n) => !isNaN(n));
+    if (buyDates.length === 0) return { cagr: null, cagrYears: null };
+    const earliest = Math.min(...buyDates);
+    const years = (Date.now() - earliest) / (365.25 * 86400000);
+    if (years <= 0.0274) return { cagr: null, cagrYears: null }; // <10 days: meaningless
+    const ratio = current / invested;
+    const c = (Math.pow(ratio, 1 / years) - 1) * 100;
+    return { cagr: isFinite(c) ? c : null, cagrYears: years };
+  }, [invested, current, transactions]);
+
   const allocByStock = rows.map((r) => ({ name: r.ticker, value: r.value }));
   const allocBySector = Object.values(
     rows.reduce<Record<string, { name: string; value: number }>>((acc, r) => {
@@ -96,6 +112,24 @@ onPricesChangeRef.current = onPricesChange;
     }, {})
   );
 
+  const handleExportCSV = useCallback(() => {
+    downloadCSV(
+      [
+        ["Ticker", "Name", "Sector", "Qty", "Avg Cost", "CMP", "Invested", "Value", "P&L", "P/L %", "Realized", "Weight %", "Days Held", "Buy Date"],
+        ...rows.map((r) => [
+          r.ticker, r.name, r.sector, r.qty, r.avgPrice.toFixed(2), r.cp.toFixed(2),
+          r.invested.toFixed(2), r.value.toFixed(2), r.pl.toFixed(2), r.plPct.toFixed(2),
+          r.realized.toFixed(2), r.weight.toFixed(2), r.daysHeld ?? "", r.buyDate ?? "",
+        ]),
+        [],
+        ["Totals", "", "", "", "", "", invested.toFixed(2), current.toFixed(2), (current - invested).toFixed(2), "", realized.toFixed(2), "", "", ""],
+        ["Cash Balance", "", "", "", "", "", "", cashBalance.toFixed(2), "", "", "", "", "", ""],
+        ["CAGR %", "", "", "", "", "", "", cagr != null ? cagr.toFixed(2) : "—", "", "", "", "", "", ""],
+      ],
+      `portfolio-${new Date().toISOString().slice(0, 10)}.csv`
+    );
+  }, [rows, invested, current, realized, cashBalance, cagr]);
+
   return (
     <div className="space-y-6">
       <PortfolioStats
@@ -103,13 +137,17 @@ onPricesChangeRef.current = onPricesChange;
         current={current}
         realized={realized}
         cashBalance={cashBalance}
+        cagr={cagr}
+        cagrYears={cagrYears}
       />
       <PortfolioActions
         onAddFunds={onAddFunds}
         onWithdraw={onWithdraw}
         onBuy={onBuy}
         onSell={() => onSell()}
+        onExportCSV={handleExportCSV}
         canSell={portfolio.length > 0}
+        canExport={portfolio.length > 0}
       />
       <HoldingsTable rows={rows} onSell={onSell} />
       {portfolio.length > 0 && (
