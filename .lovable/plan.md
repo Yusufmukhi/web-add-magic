@@ -1,47 +1,67 @@
-## Scope reality check
+## Audit of your current app
 
-Your `index.html` is a 2,434-line single-page app with **6 major surfaces**:
-1. Watchlist (cards, detail tabs, search, refresh)
-2. Portfolio (holdings table, stats, charts)
-3. Transactions (history, filter, CSV export)
-4. Buy/Sell/Funds modals
-5. Sector editor
-6. Analytics (portfolio vs NIFTY 50 / SENSEX benchmarks)
+Right now you have **9 tabs** crammed into one row: Watchlist, Portfolio, Sold, Transactions, Analytics, SIP, Goals, Dividends, Tax. On your 852px viewport they wrap to two rows and look noisy. Most users only touch 3–4 of these daily.
 
-Plus 4 UI combinations (Creative/Minimal × Dark/Light), sparklines, sortable columns, debounced search, CSV export, sector badges, keyboard shortcuts, skeletons, empty states, responsive.
+Below is a concrete plan to **remove clutter, regroup tabs, and add a few high-value features**. Pick what you want — I'll implement only the checked items.
 
-Doing **all of this correctly in one loop** would produce ~40 files / 4–5k lines of generated code with high risk of bugs and broken parity. I recommend phasing.
+---
 
-## Proposed phasing
+### A. Remove / consolidate (declutter)
 
-### Phase 1 (this loop) — Foundation + Watchlist
-- `/backend/server.py` + `requirements.txt` (your code, cleaned, untouched API shapes)
-- `.env.example` with `VITE_API_BASE_URL=http://localhost:8000`
-- Full folder skeleton per your spec (adapted to TanStack: route lives in `src/routes/index.tsx`, no `App.tsx`/`main.tsx`)
-- Context + hooks: `ThemeContext`, `UIModeContext`, `useTheme`, `useUIMode`, `useWatchlist`, `useStockQuote`, `useStockHistory`, localStorage persistence
-- `services/api.ts` typed wrapper for all 4 endpoints
-- `types/`, `utils/formatters.ts` (₹, Cr/L, Indian commas, ▲/▼), `utils/colorHelpers.ts`
-- Layout: `Navbar` with `ThemeToggle` + `ModeToggle`, tabs scaffold
-- **Watchlist tab fully functional**: `AddStockBar` (debounced search, `/` shortcut), `WatchlistTable` (sortable, sparklines, sector badges, 52-wk alert badges, CSV export), `StockRow`, `StockDetail` with `StatCard`, skeletons, empty states
-- Portfolio Summary Bar (total / avg PE / top gainer-loser)
-- All 4 UI combinations wired and working
+1. **Merge "Sold" into "Transactions"** — Sold is just a filtered view of transactions. Add a filter chip (All / Buy / Sell / Dividend) inside Transactions instead of a whole tab.
+2. **Merge "Dividends" into Transactions too** — same reasoning; dividends are a transaction type. Keep the dividend *summary* card inside Portfolio.
+3. **Move "Tax" under Portfolio as a sub-section / button** ("Download Tax Report") — it's a once-a-year action, not a daily tab.
+4. **Drop the footer hint** ("Press / to focus search") if the shortcut isn't actually wired up (it currently isn't).
 
-### Phase 2 (next message after you confirm phase 1) — Portfolio + Transactions
-- Portfolio tab (holdings, stats, allocation/sector charts via Recharts)
-- Transactions tab (filter, CSV export)
-- Buy/Sell/Funds modals + cash balance + realized P/L logic
+Result: **9 tabs → 5 tabs** (Watchlist, Portfolio, Transactions, Analytics, Planning) where "Planning" holds SIP + Goals.
 
-### Phase 3 — Analytics + Sector editor
-- Analytics tab with NIFTY 50 / SENSEX benchmark via `useStockHistory`, `PeriodSelector`, `BenchmarkToggle`
-- Sector editor
+---
 
-## Technical notes
+### B. Rearrange (better hierarchy)
 
-- TanStack Start (Cloudflare Workers runtime) cannot run Python. `server.py` stays in `/backend/` for you to run locally. Frontend reads `import.meta.env.VITE_API_BASE_URL` (default `http://localhost:8000`). Lovable preview will show empty/error states until you run the backend; that's expected.
-- All data fetching wrapped in TanStack Query (already in template) for caching/dedup.
-- Theme + mode applied via `data-theme` and `data-mode` attributes on `<html>`, with Tailwind `data-[mode=creative]:` variants. No custom CSS files — just `src/styles.css` token block.
-- Charts via Recharts (sparklines = `<LineChart>` with no axes).
+1. **Dashboard-first landing**: replace the current Watchlist-first default with a compact **Overview** strip on top of every tab showing: Portfolio Value, Day P&L, Total P&L, Cash, CAGR. The `PortfolioSummary` block today only shows watchlist movers — it should show *your money* first.
+2. **Sticky tab bar** when scrolling long tables.
+3. **Reorder tabs by frequency**: Portfolio → Watchlist → Analytics → Transactions → Planning.
+4. **Collapse the title block** ("Dalal Street" + tagline) into the Navbar to reclaim vertical space.
 
-## Confirm
+---
 
-Reply "go phase 1" and I'll build it. If you'd rather I attempt everything in one giant loop, say "all at once" — but expect a longer build and more iteration to fix breakage.
+### C. Useful features to ADD
+
+1. **Top movers / heatmap** on the Analytics tab — color-coded grid of your holdings by day % change.
+2. **Price alerts** — set a target price per ticker; toast + browser notification when crossed (uses existing quote polling).
+3. **News feed per stock** in StockDetail (Yahoo Finance news endpoint, one extra backend route).
+4. **Compare stocks** — pick 2–3 tickers, overlay normalized price charts.
+5. **Import / Export portfolio as CSV** (you already have CSV export for holdings; add **import** so users can seed from a broker statement).
+6. **Cost-basis methods** toggle (FIFO vs Average) for realized P&L — affects Sold + Tax numbers.
+7. **Currency / locale** in settings (default ₹ IST, optional $ USD for NRIs).
+8. **Keyboard shortcuts** actually wired: `/` focus search, `b` buy, `s` sell, `g p` go to portfolio.
+
+---
+
+### D. Visual polish
+
+1. Tighter card padding on mobile (currently `py-8` everywhere — too airy at 852px width).
+2. Use the same StatCard component everywhere (Portfolio, Analytics, Goals already use it; SIP/Dividends don't — inconsistent).
+3. Replace the wrapping TabsList with a horizontal-scroll bar on small viewports, or switch to an icon-only collapsed mode.
+4. Add empty-state illustrations for Watchlist / Portfolio / Transactions when empty (right now they just show blank tables).
+
+---
+
+### My recommendation (minimal, high-impact)
+
+If you want one batch of changes, I'd do:
+
+- **A1, A2, A3** (collapse 9 tabs → 5)
+- **B1** (top overview strip with real portfolio numbers)
+- **B3** (reorder tabs)
+- **C2** (price alerts) and **C5** (CSV import)
+- **D3** (horizontal-scroll tabs on mobile)
+
+That's a meaningful redesign in one pass without bloating the app further.
+
+---
+
+### Tell me which to do
+
+Reply with letters/numbers (e.g. "A1, A2, B1, C2, D3") or just say **"do the recommended set"** and I'll start.

@@ -5,7 +5,8 @@ import { PortfolioStats } from "./PortfolioStats";
 import { HoldingsTable } from "./HoldingsTable";
 import { AllocationDonut } from "./AllocationDonut";
 import { PortfolioActions } from "./PortfolioActions";
-import { downloadCSV } from "@/utils/csv";
+import { downloadCSV, parseHoldingsCSV } from "@/utils/csv";
+import { toast } from "sonner";
 
 interface Props {
   portfolio: Holding[];
@@ -16,11 +17,12 @@ interface Props {
   onBuy: () => void;
   onSell: (ticker?: string) => void;
   onPricesChange: (prices: Record<string, number>) => void;
+  onImportHoldings?: (rows: { ticker: string; qty: number; price: number; date: string }[]) => void;
 }
 
 export function PortfolioPanel({
   portfolio, transactions, cashBalance,
-  onAddFunds, onWithdraw, onBuy, onSell, onPricesChange,
+  onAddFunds, onWithdraw, onBuy, onSell, onPricesChange, onImportHoldings,
 }: Props) {
   const tickers = useMemo(() => portfolio.map((h) => h.ticker), [portfolio]);
   const quotes = useStockQuotes(tickers);
@@ -146,6 +148,14 @@ onPricesChangeRef.current = onPricesChange;
         onBuy={onBuy}
         onSell={() => onSell()}
         onExportCSV={handleExportCSV}
+        onImportCSV={onImportHoldings ? async (file) => {
+          const text = await file.text();
+          const { holdings, errors } = parseHoldingsCSV(text);
+          if (errors.length) errors.slice(0, 3).forEach((e) => toast.error(e));
+          if (holdings.length === 0) { toast.error("No valid rows found"); return; }
+          onImportHoldings(holdings);
+          toast.success(`Imported ${holdings.length} holding${holdings.length === 1 ? "" : "s"}`);
+        } : undefined}
         canSell={portfolio.length > 0}
         canExport={portfolio.length > 0}
       />
