@@ -1,10 +1,11 @@
-import { useEffect, useMemo,useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useStockQuotes } from "@/hooks/useStockQuote";
 import type { Holding, HoldingRow, Transaction } from "@/types/portfolio.types";
 import { PortfolioStats } from "./PortfolioStats";
 import { HoldingsTable } from "./HoldingsTable";
 import { AllocationDonut } from "./AllocationDonut";
 import { PortfolioActions } from "./PortfolioActions";
+import { downloadCSV } from "@/utils/csv";
 
 interface Props {
   portfolio: Holding[];
