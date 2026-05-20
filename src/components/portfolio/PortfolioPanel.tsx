@@ -17,6 +17,7 @@ interface Props {
   onBuy: () => void;
   onSell: (ticker?: string) => void;
   onPricesChange: (prices: Record<string, number>) => void;
+  onImportHoldings?: (rows: { ticker: string; qty: number; price: number; date: string }[]) => void;
 }
 
 export function PortfolioPanel({
