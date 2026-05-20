@@ -88,6 +88,12 @@ function WatchlistPage() {
     });
   }, []);
 
+  const portfolioValue = useMemo(() => {
+    let v = cashBalance || 0;
+    for (const h of portfolio) v += (portfolioPrices[h.ticker] ?? h.avgPrice) * h.qty;
+    return v;
+  }, [portfolio, portfolioPrices, cashBalance]);
+
   return (
     <div className="min-h-screen">
       <Navbar />
