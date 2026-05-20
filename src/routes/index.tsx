@@ -251,9 +251,6 @@ function DashboardPage() {
         prefillTicker={sellPrefill}
         onConfirm={handleSell}
       />
-
-      {/* Avoid unused var lint */}
-      <span hidden>{invested}{current}</span>
     </div>
   );
 }
