@@ -1,4 +1,4 @@
-import { Plus, Minus, ShoppingCart, ArrowDownToLine } from "lucide-react";
+import { Plus, Minus, ShoppingCart, ArrowDownToLine, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 interface Props {
@@ -6,10 +6,14 @@ interface Props {
   onWithdraw: () => void;
   onBuy: () => void;
   onSell: () => void;
+  onExportCSV: () => void;
   canSell: boolean;
+  canExport: boolean;
 }
 
-export function PortfolioActions({ onAddFunds, onWithdraw, onBuy, onSell, canSell }: Props) {
+export function PortfolioActions({
+  onAddFunds, onWithdraw, onBuy, onSell, onExportCSV, canSell, canExport,
+}: Props) {
   return (
     <div className="flex flex-wrap gap-2">
       <Button onClick={onAddFunds} variant="outline" className="gap-2 minimal:rounded-none">
@@ -24,6 +28,15 @@ export function PortfolioActions({ onAddFunds, onWithdraw, onBuy, onSell, canSel
       <Button onClick={onSell} disabled={!canSell} variant="destructive" className="gap-2 minimal:rounded-none">
         <Minus className="h-4 w-4" /> Sell
       </Button>
+      <Button
+        onClick={onExportCSV}
+        disabled={!canExport}
+        variant="outline"
+        className="ml-auto gap-2 minimal:rounded-none"
+      >
+        <Download className="h-4 w-4" /> Export CSV
+      </Button>
     </div>
   );
 }
+
