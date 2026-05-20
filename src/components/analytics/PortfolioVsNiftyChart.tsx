@@ -129,13 +129,13 @@ export function PortfolioVsNiftyChart({ portfolio }: Props) {
   const { series, summary, isLoading } = usePortfolioVsNifty(portfolio, period);
   const hasPortfolio = portfolio.length > 0;
 
-  const yDomain = useMemo(() => {
-    if (!series.length) return ["auto", "auto"] as const;
+  const yDomain = useMemo<[number | "auto", number | "auto"]>(() => {
+    if (!series.length) return ["auto", "auto"];
     const vals = series.flatMap((p) => [p.portfolio, p.nifty, p.cash]);
     const min = Math.min(...vals);
     const max = Math.max(...vals);
     const pad = (max - min) * 0.08 || max * 0.05;
-    return [Math.floor(min - pad), Math.ceil(max + pad)] as const;
+    return [Math.floor(min - pad), Math.ceil(max + pad)];
   }, [series]);
 
   return (
