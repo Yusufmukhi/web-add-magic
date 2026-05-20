@@ -1,7 +1,8 @@
+import type { ReactNode } from "react";
 import { ThemeToggle } from "./ThemeToggle";
 import { ModeToggle } from "./ModeToggle";
 
-export function Navbar() {
+export function Navbar({ rightSlot }: { rightSlot?: ReactNode }) {
   return (
     <header className="sticky top-0 z-50 border-b border-border bg-background/70 backdrop-blur-xl creative:glass minimal:bg-background">
       <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
