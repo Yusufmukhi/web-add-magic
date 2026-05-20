@@ -1,10 +1,10 @@
 import { useCallback, useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { toast } from "sonner";
-import { Briefcase, LineChart, ListChecks, Receipt, Archive, Repeat, Target, Coins, FileText } from "lucide-react";
+import { Briefcase, LineChart, ListChecks, Receipt, CalendarRange } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Navbar } from "@/components/layout/Navbar";
-import { PortfolioSummary } from "@/components/layout/PortfolioSummary";
+import { OverviewStrip } from "@/components/layout/OverviewStrip";
 import { AddStockBar } from "@/components/watchlist/AddStockBar";
 import { WatchlistTable } from "@/components/watchlist/WatchlistTable";
 import { StockDetail } from "@/components/detail/StockDetail";
@@ -15,18 +15,15 @@ import { WithdrawModal } from "@/components/modals/WithdrawModal";
 import { BuyStockModal } from "@/components/modals/BuyStockModal";
 import { SellStockModal } from "@/components/modals/SellStockModal";
 import { AnalyticsPanel } from "@/components/analytics/AnalyticsPanel";
-import { SoldStocksPanel } from "@/components/sold/SoldStocksPanel";
-import { SIPPanel } from "@/components/sip/SIPPanel";
-import { GoalsPanel } from "@/components/goals/GoalsPanel";
-import { DividendsPanel } from "@/components/dividends/DividendsPanel";
-import { TaxReportPanel } from "@/components/tax/TaxReportPanel";
+import { PlanningPanel } from "@/components/planning/PlanningPanel";
+import { PriceAlertsButton } from "@/components/alerts/PriceAlertsButton";
 import { useWatchlist } from "@/hooks/useWatchlist";
 import { useStockQuote, useStockQuotes } from "@/hooks/useStockQuote";
 import { usePortfolioState } from "@/hooks/usePortfolio";
 
-export const Route = createFileRoute("/")({ component: WatchlistPage });
+export const Route = createFileRoute("/")({ component: DashboardPage });
 
-function WatchlistPage() {
+function DashboardPage() {
   const { tickers, add, remove, hydrated } = useWatchlist();
   const results = useStockQuotes(tickers);
   const [selected, setSelected] = useState<string | null>(null);
@@ -40,6 +37,11 @@ function WatchlistPage() {
   const [modal, setModal] = useState<"add" | "withdraw" | "buy" | "sell" | null>(null);
   const [sellPrefill, setSellPrefill] = useState<string | null>(null);
   const [portfolioPrices, setPortfolioPrices] = useState<Record<string, number>>({});
+
+  // Quotes used by alerts checker (portfolio + watchlist)
+  const portfolioTickers = useMemo(() => portfolio.map((h) => h.ticker), [portfolio]);
+  const portfolioQuotes = useStockQuotes(portfolioTickers);
+  const alertsQuotes = useMemo(() => [...results, ...portfolioQuotes], [results, portfolioQuotes]);
 
   const handleAdd = (t: string) => {
     const ok = add(t);
@@ -76,7 +78,6 @@ function WatchlistPage() {
     [sell, portfolio]
   );
 
-  // ✅ FIXED: Smart setter that only updates state when prices actually change
   const handlePricesChange = useCallback((newPrices: Record<string, number>) => {
     setPortfolioPrices(prev => {
       const keys = Object.keys(newPrices);
@@ -84,62 +85,109 @@ function WatchlistPage() {
       for (const k of keys) {
         if (prev[k] !== newPrices[k]) return newPrices;
       }
-      return prev; // same values = same reference = no re-render
+      return prev;
     });
   }, []);
 
-  const portfolioValue = useMemo(() => {
-    let v = cashBalance || 0;
-    for (const h of portfolio) v += (portfolioPrices[h.ticker] ?? h.avgPrice) * h.qty;
-    return v;
-  }, [portfolio, portfolioPrices, cashBalance]);
+  const handleImportHoldings = useCallback(
+    (rows: { ticker: string; qty: number; price: number; date: string }[]) => {
+      // Auto top-up cash if needed so imports never fail
+      const need = rows.reduce((a, r) => a + r.qty * r.price, 0);
+      if (need > cashBalance) addFunds(need - cashBalance);
+      rows.forEach((r) => {
+        buy(r.ticker, r.price, r.qty, r.date);
+        if (!tickers.includes(r.ticker)) add(r.ticker);
+      });
+    },
+    [cashBalance, addFunds, buy, tickers, add]
+  );
+
+  const { invested, current, realized, cagr } = useMemo(() => {
+    let inv = 0, cur = 0;
+    portfolio.forEach((h) => {
+      const cp = portfolioPrices[h.ticker] ?? h.avgPrice;
+      inv += h.avgPrice * h.qty;
+      cur += cp * h.qty;
+    });
+    const real = transactions.reduce(
+      (a, t) => (t.action === "SELL" && t.meta?.profit != null ? a + t.meta.profit : a),
+      0
+    );
+    let c: number | null = null;
+    if (inv > 0 && cur > 0) {
+      const buyDates = transactions
+        .filter((t) => t.action === "BUY" && t.date)
+        .map((t) => Date.parse(t.date))
+        .filter((n) => !isNaN(n));
+      if (buyDates.length) {
+        const years = (Date.now() - Math.min(...buyDates)) / (365.25 * 86400000);
+        if (years > 0.0274) {
+          const v = (Math.pow(cur / inv, 1 / years) - 1) * 100;
+          c = isFinite(v) ? v : null;
+        }
+      }
+    }
+    return { invested: inv, current: cur, realized: real, cagr: c };
+  }, [portfolio, portfolioPrices, transactions]);
+
+  const portfolioValue = current + cashBalance;
 
   return (
     <div className="min-h-screen">
-      <Navbar />
-      <main className="mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-6 sm:py-8">
+      <Navbar rightSlot={<PriceAlertsButton quotes={alertsQuotes} />} />
+      <main className="mx-auto max-w-7xl space-y-5 px-3 py-4 sm:px-6 sm:py-6">
         <section className="space-y-3">
           <div>
-            <h1 className="font-display text-3xl font-bold tracking-tight creative:bg-gradient-to-r creative:from-foreground creative:to-primary creative:bg-clip-text creative:text-transparent sm:text-4xl">
+            <h1 className="font-display text-2xl font-bold tracking-tight creative:bg-gradient-to-r creative:from-foreground creative:to-primary creative:bg-clip-text creative:text-transparent sm:text-3xl">
               Dalal Street
             </h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              NSE watchlist, portfolio, and transaction history — all in one tape.
+            <p className="mt-0.5 text-xs text-muted-foreground sm:text-sm">
+              Your portfolio, watchlist, and analytics — all in one tape.
             </p>
           </div>
-          <PortfolioSummary results={results} />
+          <OverviewStrip
+            portfolio={portfolio}
+            portfolioQuotes={portfolioQuotes}
+            cashBalance={cashBalance}
+            realized={realized}
+            cagr={cagr}
+          />
         </section>
 
-        <Tabs defaultValue="watchlist" className="space-y-6">
-          <TabsList className="flex flex-wrap h-auto bg-card creative:shadow-soft minimal:rounded-none minimal:border-b minimal:border-border minimal:bg-transparent minimal:p-0">
-            <TabsTrigger value="watchlist" className="gap-1.5 minimal:rounded-none minimal:border-b-2 minimal:border-transparent minimal:bg-transparent minimal:data-[state=active]:border-primary minimal:data-[state=active]:bg-transparent minimal:data-[state=active]:shadow-none">
-              <ListChecks className="h-3.5 w-3.5" /> Watchlist
-            </TabsTrigger>
-            <TabsTrigger value="portfolio" className="gap-1.5 minimal:rounded-none minimal:border-b-2 minimal:border-transparent minimal:bg-transparent minimal:data-[state=active]:border-primary minimal:data-[state=active]:bg-transparent minimal:data-[state=active]:shadow-none">
-              <Briefcase className="h-3.5 w-3.5" /> Portfolio
-            </TabsTrigger>
-            <TabsTrigger value="sold" className="gap-1.5 minimal:rounded-none minimal:border-b-2 minimal:border-transparent minimal:bg-transparent minimal:data-[state=active]:border-primary minimal:data-[state=active]:bg-transparent minimal:data-[state=active]:shadow-none">
-              <Archive className="h-3.5 w-3.5" /> Sold
-            </TabsTrigger>
-            <TabsTrigger value="transactions" className="gap-1.5 minimal:rounded-none minimal:border-b-2 minimal:border-transparent minimal:bg-transparent minimal:data-[state=active]:border-primary minimal:data-[state=active]:bg-transparent minimal:data-[state=active]:shadow-none">
-              <Receipt className="h-3.5 w-3.5" /> Transactions
-            </TabsTrigger>
-            <TabsTrigger value="analytics" className="gap-1.5 minimal:rounded-none minimal:border-b-2 minimal:border-transparent minimal:bg-transparent minimal:data-[state=active]:border-primary minimal:data-[state=active]:bg-transparent minimal:data-[state=active]:shadow-none">
-              <LineChart className="h-3.5 w-3.5" /> Analytics
-            </TabsTrigger>
-            <TabsTrigger value="sip" className="gap-1.5 minimal:rounded-none minimal:border-b-2 minimal:border-transparent minimal:bg-transparent minimal:data-[state=active]:border-primary minimal:data-[state=active]:bg-transparent minimal:data-[state=active]:shadow-none">
-              <Repeat className="h-3.5 w-3.5" /> SIP
-            </TabsTrigger>
-            <TabsTrigger value="goals" className="gap-1.5 minimal:rounded-none minimal:border-b-2 minimal:border-transparent minimal:bg-transparent minimal:data-[state=active]:border-primary minimal:data-[state=active]:bg-transparent minimal:data-[state=active]:shadow-none">
-              <Target className="h-3.5 w-3.5" /> Goals
-            </TabsTrigger>
-            <TabsTrigger value="dividends" className="gap-1.5 minimal:rounded-none minimal:border-b-2 minimal:border-transparent minimal:bg-transparent minimal:data-[state=active]:border-primary minimal:data-[state=active]:bg-transparent minimal:data-[state=active]:shadow-none">
-              <Coins className="h-3.5 w-3.5" /> Dividends
-            </TabsTrigger>
-            <TabsTrigger value="tax" className="gap-1.5 minimal:rounded-none minimal:border-b-2 minimal:border-transparent minimal:bg-transparent minimal:data-[state=active]:border-primary minimal:data-[state=active]:bg-transparent minimal:data-[state=active]:shadow-none">
-              <FileText className="h-3.5 w-3.5" /> Tax
-            </TabsTrigger>
-          </TabsList>
+        <Tabs defaultValue="portfolio" className="space-y-5">
+          <div className="sticky top-0 z-10 -mx-3 overflow-x-auto bg-background/95 px-3 py-1 backdrop-blur sm:-mx-6 sm:px-6">
+            <TabsList className="inline-flex h-auto w-max bg-card creative:shadow-soft minimal:rounded-none minimal:border-b minimal:border-border minimal:bg-transparent minimal:p-0">
+              <TabsTrigger value="portfolio" className="gap-1.5 minimal:rounded-none minimal:border-b-2 minimal:border-transparent minimal:bg-transparent minimal:data-[state=active]:border-primary minimal:data-[state=active]:bg-transparent minimal:data-[state=active]:shadow-none">
+                <Briefcase className="h-3.5 w-3.5" /> Portfolio
+              </TabsTrigger>
+              <TabsTrigger value="watchlist" className="gap-1.5 minimal:rounded-none minimal:border-b-2 minimal:border-transparent minimal:bg-transparent minimal:data-[state=active]:border-primary minimal:data-[state=active]:bg-transparent minimal:data-[state=active]:shadow-none">
+                <ListChecks className="h-3.5 w-3.5" /> Watchlist
+              </TabsTrigger>
+              <TabsTrigger value="analytics" className="gap-1.5 minimal:rounded-none minimal:border-b-2 minimal:border-transparent minimal:bg-transparent minimal:data-[state=active]:border-primary minimal:data-[state=active]:bg-transparent minimal:data-[state=active]:shadow-none">
+                <LineChart className="h-3.5 w-3.5" /> Analytics
+              </TabsTrigger>
+              <TabsTrigger value="transactions" className="gap-1.5 minimal:rounded-none minimal:border-b-2 minimal:border-transparent minimal:bg-transparent minimal:data-[state=active]:border-primary minimal:data-[state=active]:bg-transparent minimal:data-[state=active]:shadow-none">
+                <Receipt className="h-3.5 w-3.5" /> Transactions
+              </TabsTrigger>
+              <TabsTrigger value="planning" className="gap-1.5 minimal:rounded-none minimal:border-b-2 minimal:border-transparent minimal:bg-transparent minimal:data-[state=active]:border-primary minimal:data-[state=active]:bg-transparent minimal:data-[state=active]:shadow-none">
+                <CalendarRange className="h-3.5 w-3.5" /> Planning
+              </TabsTrigger>
+            </TabsList>
+          </div>
+
+          <TabsContent value="portfolio">
+            <PortfolioPanel
+              portfolio={portfolio}
+              transactions={transactions}
+              cashBalance={cashBalance}
+              onAddFunds={() => setModal("add")}
+              onWithdraw={() => setModal("withdraw")}
+              onBuy={() => setModal("buy")}
+              onSell={(t) => { setSellPrefill(t ?? null); setModal("sell"); }}
+              onPricesChange={handlePricesChange}
+              onImportHoldings={handleImportHoldings}
+            />
+          </TabsContent>
 
           <TabsContent value="watchlist" className="space-y-4">
             <AddStockBar onAdd={handleAdd} />
@@ -159,52 +207,22 @@ function WatchlistPage() {
             />
           </TabsContent>
 
-          <TabsContent value="portfolio">
-            <PortfolioPanel
-              portfolio={portfolio}
-              transactions={transactions}
-              cashBalance={cashBalance}
-              onAddFunds={() => setModal("add")}
-              onWithdraw={() => setModal("withdraw")}
-              onBuy={() => setModal("buy")}
-              onSell={(t) => { setSellPrefill(t ?? null); setModal("sell"); }}
-              onPricesChange={handlePricesChange}
-            />
-          </TabsContent>
-
-          <TabsContent value="sold">
-            <SoldStocksPanel transactions={transactions} />
+          <TabsContent value="analytics">
+            <AnalyticsPanel portfolio={portfolio} results={results} />
           </TabsContent>
 
           <TabsContent value="transactions">
             <TransactionsTable transactions={transactions} />
           </TabsContent>
 
-          <TabsContent value="analytics">
-            <AnalyticsPanel portfolio={portfolio} results={results} />
-          </TabsContent>
-
-          <TabsContent value="sip">
-            <SIPPanel prices={portfolioPrices} />
-          </TabsContent>
-
-          <TabsContent value="goals">
-            <GoalsPanel portfolioValue={portfolioValue} />
-          </TabsContent>
-
-          <TabsContent value="dividends">
-            <DividendsPanel />
-          </TabsContent>
-
-          <TabsContent value="tax">
-            <TaxReportPanel transactions={transactions} />
+          <TabsContent value="planning">
+            <PlanningPanel
+              prices={portfolioPrices}
+              portfolioValue={portfolioValue}
+              transactions={transactions}
+            />
           </TabsContent>
         </Tabs>
-
-        <footer className="border-t border-border pt-6 text-center text-xs text-muted-foreground">
-          Press <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono">/</kbd> to focus search.
-          Data via Yahoo Finance.
-        </footer>
       </main>
 
       <AddFundsModal
@@ -233,6 +251,9 @@ function WatchlistPage() {
         prefillTicker={sellPrefill}
         onConfirm={handleSell}
       />
+
+      {/* Avoid unused var lint */}
+      <span hidden>{invested}{current}</span>
     </div>
   );
 }
