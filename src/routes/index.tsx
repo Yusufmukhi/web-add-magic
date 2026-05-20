@@ -172,12 +172,32 @@ function WatchlistPage() {
             />
           </TabsContent>
 
+          <TabsContent value="sold">
+            <SoldStocksPanel transactions={transactions} />
+          </TabsContent>
+
           <TabsContent value="transactions">
             <TransactionsTable transactions={transactions} />
           </TabsContent>
 
           <TabsContent value="analytics">
             <AnalyticsPanel portfolio={portfolio} results={results} />
+          </TabsContent>
+
+          <TabsContent value="sip">
+            <SIPPanel prices={portfolioPrices} />
+          </TabsContent>
+
+          <TabsContent value="goals">
+            <GoalsPanel portfolioValue={portfolioValue} />
+          </TabsContent>
+
+          <TabsContent value="dividends">
+            <DividendsPanel />
+          </TabsContent>
+
+          <TabsContent value="tax">
+            <TaxReportPanel transactions={transactions} />
           </TabsContent>
         </Tabs>
 
