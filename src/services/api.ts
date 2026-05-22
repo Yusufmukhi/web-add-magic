@@ -7,7 +7,7 @@ import type { StockQuote } from "@/types/stock.types";
 
 const API_BASE =
   (import.meta.env.VITE_API_BASE_URL as string | undefined) ??
-  "https://market-muse-95.onrender.com";
+  "https://web-add-magic-1.onrender.com";
 
 async function getJSON<T>(path: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`);
