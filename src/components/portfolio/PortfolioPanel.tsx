@@ -147,7 +147,7 @@ onPricesChangeRef.current = onPricesChange;
     // ===== Section: Current Holdings =====
     rows.push(["CURRENT HOLDINGS"]);
     rows.push(["Ticker", "Name", "Sector", "Qty", "Avg Cost", "CMP", "Invested", "Value", "P&L", "P/L %", "Realized", "Weight %", "Days Held", "Buy Date"]);
-    portfolioRows.forEach((r) => {
+    rows.forEach((r) => {
       rows.push([
         r.ticker, r.name, r.sector, r.qty, r.avgPrice.toFixed(2), r.cp.toFixed(2),
         r.invested.toFixed(2), r.value.toFixed(2), r.pl.toFixed(2), r.plPct.toFixed(2),
@@ -197,7 +197,7 @@ onPricesChangeRef.current = onPricesChange;
     }
 
     downloadCSV(rows, `portfolio-${today}.csv`);
-  }, [portfolioRows, invested, current, realized, cashBalance, cagr, cagrYears, transactions]);
+  }, [rows, invested, current, realized, cashBalance, cagr, cagrYears, transactions]);
 
 
   return (
