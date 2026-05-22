@@ -420,25 +420,123 @@ export async function parseHoldingsExcel(file: File): Promise<{ holdings: Import
   const rowMatches = [...sheetXml.matchAll(/<row[^>]*>(.*?)<\/row>/gs)];
   if (rowMatches.length < 2) return { holdings: [], errors: ["Sheet is empty."] };
 
-  const header = parseRow(rowMatches[0][1]).map((h) => h.trim().toLowerCase());
-  const idx = {
-    ticker: header.findIndex((h) => ["ticker", "symbol", "stock"].includes(h)),
-    qty: header.findIndex((h) => ["qty", "quantity", "shares"].includes(h)),
-    price: header.findIndex((h) => ["price", "avg price", "avg cost", "buy price"].includes(h)),
-    date: header.findIndex((h) => ["date", "buy date"].includes(h)),
-  };
-  if (idx.ticker < 0 || idx.qty < 0 || idx.price < 0) {
-    return { holdings: [], errors: ["Excel must have columns: Ticker, Qty, Price, Date (optional)."] };
-  }
+  // Parse all rows into string arrays
+  const allRows = rowMatches.map((m) => parseRow(m[1]));
 
   const today = new Date().toISOString().slice(0, 10);
   const holdings: ImportedHolding[] = [];
-  for (let i = 1; i < rowMatches.length; i++) {
-    const r = parseRow(rowMatches[i][1]);
+
+  // ── Detect broker format (Angel One / Zerodha style) ─────────────────────
+  // Broker files have metadata rows at top, then a "Holding Details" marker row,
+  // followed by the actual column headers, then data rows.
+  // Key column names: "Scrip/Contract", "Quantity", "Avg Trading Price", "Date of Download"
+  const isBrokerFormat = allRows.some((r) =>
+    r.some((c) => /scrip|holding details|avg trading price/i.test(c))
+  );
+
+  if (isBrokerFormat) {
+    // Extract "Date of Download" from metadata rows (used as buy date fallback)
+    let brokerDate = today;
+    for (const r of allRows) {
+      const joined = r.join("\t");
+      const dm = joined.match(/date of download\s*[\t:]+\s*([\d\-\/]+)/i);
+      if (dm) {
+        // Parse the date — could be YYYY-MM-DD, DD/MM/YYYY, or Excel serial
+        const raw = dm[1].trim();
+        const serial = parseFloat(raw);
+        if (!isNaN(serial) && serial > 1000 && serial < 100000) {
+          brokerDate = new Date(Math.round((serial - 25569) * 86400 * 1000)).toISOString().slice(0, 10);
+        } else if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+          brokerDate = raw;
+        } else if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(raw)) {
+          const [d, mo, y] = raw.split("/");
+          brokerDate = `${y}-${mo.padStart(2, "0")}-${d.padStart(2, "0")}`;
+        }
+        break;
+      }
+      // Also check if a cell value alone is a date-like value
+      for (let ci = 0; ci < r.length - 1; ci++) {
+        if (/date of download/i.test(r[ci])) {
+          const raw = (r[ci + 1] ?? "").trim();
+          const serial = parseFloat(raw);
+          if (!isNaN(serial) && serial > 1000 && serial < 100000) {
+            brokerDate = new Date(Math.round((serial - 25569) * 86400 * 1000)).toISOString().slice(0, 10);
+          } else if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+            brokerDate = raw;
+          }
+          break;
+        }
+      }
+    }
+
+    // Find the header row — the row containing "Scrip/Contract" or similar
+    let headerRowIdx = -1;
+    for (let i = 0; i < allRows.length; i++) {
+      if (allRows[i].some((c) => /scrip[\s\/]*contract/i.test(c))) {
+        headerRowIdx = i;
+        break;
+      }
+    }
+    if (headerRowIdx < 0) {
+      return { holdings: [], errors: ["Could not find 'Scrip/Contract' header row in broker file."] };
+    }
+
+    const header = allRows[headerRowIdx].map((h) => h.trim().toLowerCase());
+
+    // Map broker column names → indices
+    const idxTicker = header.findIndex((h) => /scrip|contract|symbol|stock/i.test(h));
+    const idxQty    = header.findIndex((h) => /^quantity$|^qty$/i.test(h));
+    const idxPrice  = header.findIndex((h) => /avg trading price|avg cost|avg price|average price/i.test(h));
+    // "Blocked_qty" column — we skip rows where all qty is blocked
+    const idxBlocked = header.findIndex((h) => /blocked/i.test(h));
+
+    if (idxTicker < 0 || idxQty < 0 || idxPrice < 0) {
+      return { holdings: [], errors: [`Broker file missing required columns. Found: ${header.filter(Boolean).join(", ")}`] };
+    }
+
+    for (let i = headerRowIdx + 1; i < allRows.length; i++) {
+      const r = allRows[i];
+      if (r.every((c) => !c.trim())) continue;
+
+      const ticker = (r[idxTicker] ?? "").trim().toUpperCase();
+      const qty    = parseFloat((r[idxQty] ?? "").replace(/,/g, ""));
+      const price  = parseFloat((r[idxPrice] ?? "").replace(/[₹,$\s,]/g, ""));
+      const blocked = idxBlocked >= 0 ? parseFloat((r[idxBlocked] ?? "0").replace(/,/g, "")) || 0 : 0;
+
+      // Skip summary/total rows (non-ticker rows)
+      if (!ticker || /^total|^grand total/i.test(ticker)) continue;
+      if (!isFinite(qty) || qty <= 0 || !isFinite(price) || price <= 0) {
+        errors.push(`Row ${i + 1}: Skipped — Ticker: "${ticker}", Qty: ${qty}, Price: ${price}`);
+        continue;
+      }
+
+      // Use tradeable qty (qty minus blocked)
+      const tradeableQty = Math.max(qty - blocked, qty); // keep full qty for portfolio tracking
+
+      holdings.push({ ticker, qty: tradeableQty, price, date: brokerDate });
+    }
+
+    return { holdings, errors };
+  }
+
+  // ── Generic flat format: Row 1 = headers, rows 2+ = data ─────────────────
+  const header = allRows[0].map((h) => h.trim().toLowerCase());
+  const idx = {
+    ticker: header.findIndex((h) => ["ticker", "symbol", "stock"].includes(h)),
+    qty:    header.findIndex((h) => ["qty", "quantity", "shares"].includes(h)),
+    price:  header.findIndex((h) => ["price", "avg price", "avg cost", "buy price"].includes(h)),
+    date:   header.findIndex((h) => ["date", "buy date"].includes(h)),
+  };
+  if (idx.ticker < 0 || idx.qty < 0 || idx.price < 0) {
+    return { holdings: [], errors: ["Excel must have columns: Ticker, Qty, Price, Date (optional). Or upload a broker holdings export (Angel One / Zerodha format)."] };
+  }
+
+  for (let i = 1; i < allRows.length; i++) {
+    const r = allRows[i];
     if (r.every((c) => !c.trim())) continue;
     const ticker = (r[idx.ticker] ?? "").trim().toUpperCase();
-    const qty = parseFloat((r[idx.qty] ?? "").replace(/,/g, ""));
-    const price = parseFloat((r[idx.price] ?? "").replace(/[₹,$\s,]/g, ""));
+    const qty    = parseFloat((r[idx.qty] ?? "").replace(/,/g, ""));
+    const price  = parseFloat((r[idx.price] ?? "").replace(/[₹,$\s,]/g, ""));
     let date = idx.date >= 0 ? (r[idx.date] ?? "").trim() : "";
     const serial = parseFloat(date);
     if (!isNaN(serial) && serial > 1000 && serial < 100000) {
