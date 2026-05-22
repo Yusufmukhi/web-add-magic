@@ -129,7 +129,7 @@ const STYLES_XML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <numFmts count="5">
   <numFmt numFmtId="164" formatCode="General"/>
   <numFmt numFmtId="165" formatCode="dd\\-mmm\\-yyyy"/>
-  <numFmt numFmtId="166" formatCode="\\u20B9#,##0"/>
+  <numFmt numFmtId="166" formatCode="[$₹-hi-IN]#,##0"/>
   <numFmt numFmtId="167" formatCode="#,##0.00\\%"/>
   <numFmt numFmtId="168" formatCode="#,##0"/>
 </numFmts>
