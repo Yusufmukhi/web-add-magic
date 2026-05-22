@@ -68,9 +68,9 @@ export function BenchmarkChart({ series, isLoading, period, onPeriodChange, hasP
 
       {stats && (
         <div className="mb-4 grid grid-cols-3 gap-2 text-xs">
-          <StatPill label={hasPortfolio ? "Portfolio" : "—"} value={stats.p} color="hsl(var(--primary))" />
-          <StatPill label="NIFTY 50" value={stats.n} color="hsl(var(--chart-2, 142 71% 45%))" />
-          <StatPill label="SENSEX" value={stats.s} color="hsl(var(--chart-3, 38 92% 50%))" />
+          <StatPill label={hasPortfolio ? "Portfolio" : "—"} value={stats.p} color="var(--primary)" />
+          <StatPill label="NIFTY 50" value={stats.n} color="#10b981" />
+          <StatPill label="SENSEX" value={stats.s} color="#f59e0b" />
         </div>
       )}
 
@@ -84,34 +84,38 @@ export function BenchmarkChart({ series, isLoading, period, onPeriodChange, hasP
         ) : (
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={series} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
               <XAxis
                 dataKey="date"
                 tickFormatter={(d: string) => format(new Date(d), "MMM d")}
-                tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }}
+                tick={{ fill: "var(--muted-foreground)", fontSize: 11 }}
+                stroke="var(--border)"
                 minTickGap={40}
               />
               <YAxis
                 domain={["auto", "auto"]}
-                tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }}
+                tick={{ fill: "var(--muted-foreground)", fontSize: 11 }}
+                stroke="var(--border)"
                 tickFormatter={(v: number) => v.toFixed(0)}
               />
               <Tooltip
                 contentStyle={{
-                  background: "hsl(var(--popover))",
-                  border: "1px solid hsl(var(--border))",
+                  background: "var(--popover)",
+                  border: "1px solid var(--border)",
                   borderRadius: 8,
                   fontSize: 12,
+                  color: "var(--foreground)",
                 }}
                 formatter={(v: number) => v.toFixed(2)}
                 labelFormatter={(d: string) => format(new Date(d), "PP")}
               />
-              <Legend wrapperStyle={{ fontSize: 12 }} />
+              <Legend wrapperStyle={{ fontSize: 12, color: "var(--foreground)" }} />
               {hasPortfolio && (
-                <Line type="monotone" dataKey="portfolio" stroke="hsl(var(--primary))" strokeWidth={2.5} dot={false} name="Portfolio" />
+                <Line type="monotone" dataKey="portfolio" stroke="var(--primary)" strokeWidth={2.5} dot={false} name="Portfolio" />
               )}
               <Line type="monotone" dataKey="nifty" stroke="#10b981" strokeWidth={2} dot={false} name="NIFTY 50" />
               <Line type="monotone" dataKey="sensex" stroke="#f59e0b" strokeWidth={2} dot={false} name="SENSEX" />
+
             </LineChart>
           </ResponsiveContainer>
         )}

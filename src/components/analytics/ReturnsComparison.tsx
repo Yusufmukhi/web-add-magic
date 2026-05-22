@@ -131,10 +131,11 @@ export function ReturnsComparison({ portfolio }: Props) {
             <ReturnCard
               label="My Portfolio"
               value={hasPortfolio ? (returns?.portfolio ?? null) : null}
-              color="hsl(var(--primary))"
+              color="var(--primary)"
               show={hasPortfolio}
               isBeat={beat}
             />
+
             <ReturnCard
               label="NIFTY 50"
               value={returns?.nifty ?? null}

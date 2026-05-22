@@ -179,7 +179,7 @@ export function PortfolioVsNiftyChart({ portfolio }: Props) {
             value={summary.portfolioNow}
             gain={summary.portfolioGain}
             gainPct={summary.portfolioGainPct}
-            color="hsl(var(--primary))"
+            color="var(--primary)"
             icon={
               summary.beatNifty ? (
                 <TrendingUp className="ml-auto h-3.5 w-3.5 text-gain" />
@@ -206,6 +206,7 @@ export function PortfolioVsNiftyChart({ portfolio }: Props) {
             icon={<Wallet className="ml-auto h-3.5 w-3.5 text-muted-foreground" />}
           />
         </div>
+
       ) : null}
 
       {/* Alpha badge */}
@@ -248,18 +249,19 @@ export function PortfolioVsNiftyChart({ portfolio }: Props) {
             >
               <CartesianGrid
                 strokeDasharray="3 3"
-                stroke="hsl(var(--border))"
-                opacity={0.3}
+                stroke="var(--border)"
               />
               <XAxis
                 dataKey="date"
                 tickFormatter={(d: string) => format(new Date(d), "dd MMM")}
-                tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }}
+                tick={{ fill: "var(--muted-foreground)", fontSize: 11 }}
+                stroke="var(--border)"
                 minTickGap={40}
               />
               <YAxis
                 domain={yDomain}
-                tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }}
+                tick={{ fill: "var(--muted-foreground)", fontSize: 11 }}
+                stroke="var(--border)"
                 tickFormatter={(v: number) => shortINR(v)}
                 width={62}
               />
@@ -268,19 +270,18 @@ export function PortfolioVsNiftyChart({ portfolio }: Props) {
                   <CustomTooltip invested={summary?.totalInvested ?? 0} />
                 }
               />
-              <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8 }} />
+              <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8, color: "var(--foreground)" }} />
               {summary && (
                 <ReferenceLine
                   y={summary.totalInvested}
-                  stroke="hsl(var(--muted-foreground))"
+                  stroke="var(--muted-foreground)"
                   strokeDasharray="4 4"
-                  strokeOpacity={0.5}
                 />
               )}
               <Line
                 type="monotone"
                 dataKey="portfolio"
-                stroke="hsl(var(--primary))"
+                stroke="var(--primary)"
                 strokeWidth={2.5}
                 dot={false}
                 name="My Portfolio"
@@ -302,6 +303,7 @@ export function PortfolioVsNiftyChart({ portfolio }: Props) {
                 dot={false}
                 name="Cash (no growth)"
               />
+
             </LineChart>
           </ResponsiveContainer>
         )}
