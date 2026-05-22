@@ -369,7 +369,33 @@ export async function parseHoldingsExcel(file: File): Promise<{ holdings: Import
   const buffer = await file.arrayBuffer();
   const bytes = new Uint8Array(buffer);
 
-  function readEntry(name: string): string | null {
+  // Recognise YYYY-MM-DD, DD/MM/YYYY, DD-MM-YYYY, or an Excel serial
+  // BEFORE falling back to parseFloat (a string like "2026-05-16" would
+  // otherwise parseFloat to 2026 and look like a valid serial).
+  function parseDateLike(raw: string): string | null {
+    const s = (raw ?? "").trim();
+    if (!s) return null;
+    if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(s)) {
+      const [y, mo, d] = s.split("-");
+      return `${y}-${mo.padStart(2, "0")}-${d.padStart(2, "0")}`;
+    }
+    if (/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4}$/.test(s)) {
+      const [d, mo, y] = s.split(/[\/\-]/);
+      return `${y}-${mo.padStart(2, "0")}-${d.padStart(2, "0")}`;
+    }
+    // Pure number → Excel serial date
+    if (/^\d+(\.\d+)?$/.test(s)) {
+      const n = parseFloat(s);
+      if (n > 1000 && n < 100000) {
+        return new Date(Math.round((n - 25569) * 86400 * 1000))
+          .toISOString().slice(0, 10);
+      }
+    }
+    return null;
+  }
+
+
+  async function readEntry(name: string): Promise<string | null> {
     const nb = s2u(name);
     for (let i = 0; i < bytes.length - 30; i++) {
       if (bytes[i] !== 0x50 || bytes[i+1] !== 0x4b || bytes[i+2] !== 0x03 || bytes[i+3] !== 0x04) continue;
@@ -377,15 +403,32 @@ export async function parseHoldingsExcel(file: File): Promise<{ holdings: Import
       const extraLen = bytes[i+28] | (bytes[i+29] << 8);
       const fn = bytes.slice(i + 30, i + 30 + fnLen);
       if (fn.length !== nb.length || !fn.every((b, j) => b === nb[j])) continue;
+      const method = bytes[i+8] | (bytes[i+9] << 8);
+      const compSize = bytes[i+18] | (bytes[i+19] << 8) | (bytes[i+20] << 16) | (bytes[i+21] << 24);
       const start = i + 30 + fnLen + extraLen;
-      const size = bytes[i+18] | (bytes[i+19] << 8) | (bytes[i+20] << 16) | (bytes[i+21] << 24);
-      return new TextDecoder().decode(bytes.slice(start, start + size));
+      const slice = bytes.slice(start, start + compSize);
+      let data: Uint8Array;
+      if (method === 0) {
+        data = slice;
+      } else if (method === 8) {
+        // DEFLATE — use browser's DecompressionStream (raw, no zlib header)
+        try {
+          const ds = new (globalThis as { DecompressionStream: new (fmt: string) => unknown }).DecompressionStream("deflate-raw");
+          const stream = new Blob([slice as BlobPart]).stream().pipeThrough(ds as ReadableWritablePair);
+          data = new Uint8Array(await new Response(stream).arrayBuffer());
+        } catch (e) {
+          return null;
+        }
+      } else {
+        return null;
+      }
+      return new TextDecoder().decode(data);
     }
     return null;
   }
 
-  const ssXml = readEntry("xl/sharedStrings.xml");
-  const sheetXml = readEntry("xl/worksheets/sheet1.xml");
+  const ssXml = await readEntry("xl/sharedStrings.xml");
+  const sheetXml = await readEntry("xl/worksheets/sheet1.xml");
   if (!sheetXml) return { holdings: [], errors: ["Could not read sheet data."] };
 
   const ss: string[] = [];
@@ -441,29 +484,20 @@ export async function parseHoldingsExcel(file: File): Promise<{ holdings: Import
       const joined = r.join("\t");
       const dm = joined.match(/date of download\s*[\t:]+\s*([\d\-\/]+)/i);
       if (dm) {
-        // Parse the date — could be YYYY-MM-DD, DD/MM/YYYY, or Excel serial
+        // Parse the date — could be YYYY-MM-DD, DD/MM/YYYY, or Excel serial.
+        // IMPORTANT: check string formats BEFORE parseFloat, since
+        // "2026-05-16" parses as 2026 (a plausible-looking serial).
         const raw = dm[1].trim();
-        const serial = parseFloat(raw);
-        if (!isNaN(serial) && serial > 1000 && serial < 100000) {
-          brokerDate = new Date(Math.round((serial - 25569) * 86400 * 1000)).toISOString().slice(0, 10);
-        } else if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
-          brokerDate = raw;
-        } else if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(raw)) {
-          const [d, mo, y] = raw.split("/");
-          brokerDate = `${y}-${mo.padStart(2, "0")}-${d.padStart(2, "0")}`;
-        }
+        const parsed = parseDateLike(raw);
+        if (parsed) brokerDate = parsed;
         break;
       }
       // Also check if a cell value alone is a date-like value
       for (let ci = 0; ci < r.length - 1; ci++) {
         if (/date of download/i.test(r[ci])) {
           const raw = (r[ci + 1] ?? "").trim();
-          const serial = parseFloat(raw);
-          if (!isNaN(serial) && serial > 1000 && serial < 100000) {
-            brokerDate = new Date(Math.round((serial - 25569) * 86400 * 1000)).toISOString().slice(0, 10);
-          } else if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
-            brokerDate = raw;
-          }
+          const parsed = parseDateLike(raw);
+          if (parsed) brokerDate = parsed;
           break;
         }
       }
