@@ -308,8 +308,12 @@ function buildZip(files: { name: string; content: string }[]): Uint8Array {
     locals.push(local);
     offset += local.length;
   });
-  const centrals = entries.map(({ nb, data, crc, off }) =>
-    cat(new Uint8Array([0x50,0x4b,0x01,0x02]),u16(20),u16(20),u16(0),u16(0),u16(0),u16(0),u16(0),u32(crc),u32(data.length),u32(data.length),u16(nb.length),u16(0),u16(0),u16(0),u16(0),u32(0),u32(off),nb));
+ const centrals = entries.map(({ nb, data, crc, off }) =>
+  cat(new Uint8Array([0x50,0x4b,0x01,0x02]),
+    u16(20),u16(20),u16(0),u16(0),u16(0),u16(0),
+    u32(crc),u32(data.length),u32(data.length),
+    u16(nb.length),u16(0),u16(0),u16(0),u16(0),u32(0),u32(off),nb));
+
   const cb = cat(...centrals);
   const eocd = cat(new Uint8Array([0x50,0x4b,0x05,0x06]),u16(0),u16(0),u16(entries.length),u16(entries.length),u32(cb.length),u32(offset),u16(0));
   return cat(...locals, cb, eocd);
