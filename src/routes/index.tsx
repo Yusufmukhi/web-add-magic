@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { toast } from "sonner";
-import { Briefcase, LineChart, ListChecks, Receipt, CalendarRange } from "lucide-react";
+import { Briefcase, LineChart, ListChecks, Receipt, CalendarRange, Settings as SettingsIcon } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Navbar } from "@/components/layout/Navbar";
 import { OverviewStrip } from "@/components/layout/OverviewStrip";
@@ -14,17 +14,21 @@ import { AddFundsModal } from "@/components/modals/AddFundsModal";
 import { WithdrawModal } from "@/components/modals/WithdrawModal";
 import { BuyStockModal } from "@/components/modals/BuyStockModal";
 import { SellStockModal } from "@/components/modals/SellStockModal";
+import { EditHoldingModal } from "@/components/modals/EditHoldingModal";
+import { ConfirmDialog } from "@/components/modals/ConfirmDialog";
 import { AnalyticsPanel } from "@/components/analytics/AnalyticsPanel";
 import { PlanningPanel } from "@/components/planning/PlanningPanel";
 import { PriceAlertsButton } from "@/components/alerts/PriceAlertsButton";
+import { SettingsPanel, type BackupShape } from "@/components/settings/SettingsPanel";
 import { useWatchlist } from "@/hooks/useWatchlist";
 import { useStockQuote, useStockQuotes } from "@/hooks/useStockQuote";
 import { usePortfolioState } from "@/hooks/usePortfolio";
+import type { Holding } from "@/types/portfolio.types";
 
 export const Route = createFileRoute("/")({ component: DashboardPage });
 
 function DashboardPage() {
-  const { tickers, add, remove, hydrated } = useWatchlist();
+  const { tickers, add, remove, clearAll: clearWatchlist, replaceAll: replaceWatchlist, hydrated } = useWatchlist();
   const results = useStockQuotes(tickers);
   const [selected, setSelected] = useState<string | null>(null);
   const selectedQuery = useStockQuote(selected);
@@ -32,11 +36,16 @@ function DashboardPage() {
   const {
     portfolio, transactions, cashBalance,
     addFunds, withdrawFunds, buy, sell,
+    editHolding, deleteHolding, resetPortfolio, replaceState,
   } = usePortfolioState();
 
   const [modal, setModal] = useState<"add" | "withdraw" | "buy" | "sell" | null>(null);
   const [sellPrefill, setSellPrefill] = useState<string | null>(null);
   const [portfolioPrices, setPortfolioPrices] = useState<Record<string, number>>({});
+
+  // Edit / delete state
+  const [editing, setEditing] = useState<Holding | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
 
   // Quotes used by alerts checker (portfolio + watchlist)
   const portfolioTickers = useMemo(() => portfolio.map((h) => h.ticker), [portfolio]);
@@ -91,7 +100,6 @@ function DashboardPage() {
 
   const handleImportHoldings = useCallback(
     (rows: { ticker: string; qty: number; price: number; date: string }[]) => {
-      // Auto top-up cash if needed so imports never fail
       const need = rows.reduce((a, r) => a + r.qty * r.price, 0);
       if (need > cashBalance) addFunds(need - cashBalance);
       rows.forEach((r) => {
@@ -100,6 +108,42 @@ function DashboardPage() {
       });
     },
     [cashBalance, addFunds, buy, tickers, add]
+  );
+
+  const handleEditRequest = useCallback(
+    (ticker: string) => {
+      const h = portfolio.find((p) => p.ticker === ticker);
+      if (h) setEditing(h);
+    },
+    [portfolio]
+  );
+
+  const handleEditConfirm = useCallback(
+    (ticker: string, patch: { qty: number; avgPrice: number; buyDate: string }) => {
+      const ok = editHolding(ticker, patch);
+      if (ok) toast.success(`${ticker} updated`);
+      else toast.error("Edit failed");
+    },
+    [editHolding]
+  );
+
+  const handleDeleteConfirmed = useCallback(() => {
+    if (!pendingDelete) return;
+    deleteHolding(pendingDelete);
+    toast.success(`${pendingDelete} deleted`);
+    setPendingDelete(null);
+  }, [pendingDelete, deleteHolding]);
+
+  const handleImportBackup = useCallback(
+    (data: BackupShape) => {
+      replaceState({
+        portfolio: data.portfolio,
+        transactions: data.transactions,
+        cashBalance: data.cashBalance,
+      });
+      replaceWatchlist(data.watchlist);
+    },
+    [replaceState, replaceWatchlist]
   );
 
   const { current, realized, cagr } = useMemo(() => {
@@ -172,6 +216,9 @@ function DashboardPage() {
               <TabsTrigger value="planning" className="gap-1.5 minimal:rounded-none minimal:border-b-2 minimal:border-transparent minimal:bg-transparent minimal:data-[state=active]:border-primary minimal:data-[state=active]:bg-transparent minimal:data-[state=active]:shadow-none">
                 <CalendarRange className="h-3.5 w-3.5" /> Planning
               </TabsTrigger>
+              <TabsTrigger value="settings" className="gap-1.5 minimal:rounded-none minimal:border-b-2 minimal:border-transparent minimal:bg-transparent minimal:data-[state=active]:border-primary minimal:data-[state=active]:bg-transparent minimal:data-[state=active]:shadow-none">
+                <SettingsIcon className="h-3.5 w-3.5" /> Settings
+              </TabsTrigger>
             </TabsList>
           </div>
 
@@ -186,6 +233,8 @@ function DashboardPage() {
               onSell={(t) => { setSellPrefill(t ?? null); setModal("sell"); }}
               onPricesChange={handlePricesChange}
               onImportHoldings={handleImportHoldings}
+              onEditHolding={handleEditRequest}
+              onDeleteHolding={(t) => setPendingDelete(t)}
             />
           </TabsContent>
 
@@ -222,6 +271,18 @@ function DashboardPage() {
               transactions={transactions}
             />
           </TabsContent>
+
+          <TabsContent value="settings">
+            <SettingsPanel
+              portfolio={portfolio}
+              transactions={transactions}
+              cashBalance={cashBalance}
+              watchlist={tickers}
+              onResetPortfolio={resetPortfolio}
+              onClearWatchlist={clearWatchlist}
+              onImportBackup={handleImportBackup}
+            />
+          </TabsContent>
         </Tabs>
       </main>
 
@@ -250,6 +311,23 @@ function DashboardPage() {
         prices={portfolioPrices}
         prefillTicker={sellPrefill}
         onConfirm={handleSell}
+      />
+
+      <EditHoldingModal
+        open={editing !== null}
+        onClose={() => setEditing(null)}
+        holding={editing}
+        onConfirm={handleEditConfirm}
+      />
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        onClose={() => setPendingDelete(null)}
+        onConfirm={handleDeleteConfirmed}
+        title={`Delete ${pendingDelete ?? ""}?`}
+        description="This removes the holding row from your portfolio. Past transactions are kept, and your cash balance is NOT refunded."
+        confirmWord={pendingDelete ?? ""}
+        confirmLabel="Delete holding"
       />
     </div>
   );
