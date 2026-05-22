@@ -117,124 +117,255 @@ onPricesChangeRef.current = onPricesChange;
   );
 
   const handleExportCSV = useCallback(() => {
-    const unrealized = current - invested;
-    const totalPL = unrealized + realized;
+    const unrealized     = current - invested;
+    const totalPL        = unrealized + realized;
     const totalReturnPct = invested > 0 ? (totalPL / invested) * 100 : 0;
-    const netWorth = current + cashBalance;
-    const today = new Date().toISOString().slice(0, 10);
+    const netWorth       = current + cashBalance;
+    const today          = new Date().toISOString().slice(0, 10);
 
     const sells = transactions.filter((t) => t.action === "SELL");
+    const buys  = transactions.filter((t) => t.action === "BUY");
     const funds = transactions.filter((t) => t.action === "DEPOSIT" || t.action === "WITHDRAW");
+
+    // ── Formatting helpers ────────────────────────────────────────────────────
+    // Human-readable: Rs. 1.10 Cr | Rs. 2.50 L | Rs. 45.3 K | Rs. 999.00
+    const inr = (n: number | null | undefined): string => {
+      if (n == null || !isFinite(n)) return "—";
+      const sign = n < 0 ? "-" : "";
+      const abs  = Math.abs(n);
+      if (abs >= 1_00_00_000) return `${sign}Rs. ${(abs / 1_00_00_000).toFixed(2)} Cr`;
+      if (abs >= 1_00_000)    return `${sign}Rs. ${(abs / 1_00_000).toFixed(2)} L`;
+      if (abs >= 1_000)       return `${sign}Rs. ${(abs / 1_000).toFixed(1)} K`;
+      return `${sign}Rs. ${abs.toFixed(2)}`;
+    };
+
+    // Exact rupee with Indian comma style: 1,10,50,000.00
+    const raw = (n: number | null | undefined): string => {
+      if (n == null || !isFinite(n)) return "—";
+      const sign = n < 0 ? "-" : "";
+      const abs  = Math.abs(n);
+      const [int, frac = "00"] = abs.toFixed(2).split(".");
+      const last3 = int.slice(-3);
+      const rest  = int.slice(0, -3);
+      const fmt   = rest ? rest.replace(/\B(?=(\d{2})+(?!\d))/g, ",") + "," + last3 : last3;
+      return `${sign}${fmt}.${frac}`;
+    };
+
+    // Percentage with sign: +12.34% | -3.50%
+    const pct = (n: number | null | undefined): string =>
+      n == null || !isFinite(n) ? "—" : `${n >= 0 ? "+" : ""}${n.toFixed(2)}%`;
+
+    // Gain/loss arrow for readability
+    const arrow = (n: number): string => (n >= 0 ? "▲" : "▼");
 
     const csv: (string | number)[][] = [];
 
-    // ===== Section: Summary =====
-    csv.push(["PORTFOLIO SUMMARY", "", "", "", "", "", "", "", "", "", "", "", "", ""]);
-    csv.push(["Generated", today]);
-    csv.push(["Metric", "Value"]);
-    csv.push(["Invested", invested.toFixed(2)]);
-    csv.push(["Current Value", current.toFixed(2)]);
-    csv.push(["Cash Balance", cashBalance.toFixed(2)]);
-    csv.push(["Total Net Worth", netWorth.toFixed(2)]);
-    csv.push(["Unrealized P&L", unrealized.toFixed(2)]);
-    csv.push(["Realized P&L", realized.toFixed(2)]);
-    csv.push(["Total P&L", totalPL.toFixed(2)]);
-    csv.push(["Total Return %", totalReturnPct.toFixed(2) + "%"]);
-    csv.push(["CAGR %", cagr != null ? cagr.toFixed(2) + "%" : "—"]);
-    csv.push(["CAGR Years", cagrYears != null ? cagrYears.toFixed(2) : "—"]);
+    // ═══════════════════════════════════════════════════════════════════════
+    //  SECTION 1 — PORTFOLIO SUMMARY
+    // ═══════════════════════════════════════════════════════════════════════
+    csv.push(["============================================================"]);
+    csv.push(["  SECTION 1 — PORTFOLIO SUMMARY"]);
+    csv.push(["============================================================"]);
+    csv.push(["Generated On", today, "", "Active Positions", rows.length, "", "Total Trades", buys.length + sells.length]);
+    csv.push([]);
+    csv.push(["Metric", "Readable Amount", "Exact Amount (₹)"]);
+    csv.push(["Total Invested",       inr(invested),    raw(invested)]);
+    csv.push(["Current Market Value", inr(current),     raw(current)]);
+    csv.push(["Cash Available",       inr(cashBalance), raw(cashBalance)]);
+    csv.push(["Total Net Worth",      inr(netWorth),    raw(netWorth)]);
+    csv.push([]);
+    csv.push(["P&L Breakdown", "Readable Amount", "Return %"]);
+    csv.push(["Unrealized P&L",  `${arrow(unrealized)} ${inr(unrealized)}`,  pct((unrealized / (invested || 1)) * 100)]);
+    csv.push(["Realized P&L",    `${arrow(realized)}  ${inr(realized)}`,     "—"]);
+    csv.push(["Total P&L",       `${arrow(totalPL)}  ${inr(totalPL)}`,       pct(totalReturnPct)]);
+    csv.push([]);
+    csv.push(["Performance",     "Value", "Note"]);
+    csv.push(["CAGR",       cagr != null ? pct(cagr) : "—",                          cagrYears != null ? `Over ${cagrYears.toFixed(2)} years` : "Needs >10 days of data"]);
+    csv.push(["Total Return", pct(totalReturnPct),                                    "Unrealized + Realized vs Invested"]);
+    csv.push([]);
     csv.push([]);
 
-    // ===== Section: Current Holdings =====
-    csv.push(["CURRENT HOLDINGS"]);
-    csv.push(["Ticker", "Name", "Sector", "Qty", "Avg Cost", "CMP", "Invested", "Value", "P&L", "P/L %", "Realized", "Weight %", "Days Held", "Buy Date"]);
+    // ═══════════════════════════════════════════════════════════════════════
+    //  SECTION 2 — CURRENT HOLDINGS
+    // ═══════════════════════════════════════════════════════════════════════
+    csv.push(["============================================================"]);
+    csv.push([`  SECTION 2 — CURRENT HOLDINGS  (${rows.length} positions)`]);
+    csv.push(["============================================================"]);
+    csv.push([
+      "Ticker", "Company Name", "Sector",
+      "Qty Held",
+      "Avg Buy Price", "Current Price (CMP)",
+      "Invested (Readable)", "Invested (Exact ₹)",
+      "Market Value (Readable)", "Market Value (Exact ₹)",
+      "Unrealized P&L (Readable)", "Unrealized P&L (Exact ₹)", "P&L %",
+      "Realized P&L (Exact ₹)",
+      "Portfolio Weight %",
+      "Days Held", "First Buy Date",
+    ]);
     rows.forEach((r) => {
       csv.push([
-        r.ticker, r.name, r.sector, r.qty, r.avgPrice.toFixed(2), r.cp.toFixed(2),
-        r.invested.toFixed(2), r.value.toFixed(2), r.pl.toFixed(2), r.plPct.toFixed(2),
-        r.realized.toFixed(2), r.weight.toFixed(2), r.daysHeld ?? "", r.buyDate ?? "",
+        r.ticker,
+        r.name,
+        r.sector,
+        r.qty,
+        `Rs. ${raw(r.avgPrice)}`,
+        `Rs. ${raw(r.cp)}`,
+        inr(r.invested),
+        raw(r.invested),
+        inr(r.value),
+        raw(r.value),
+        `${arrow(r.pl)} ${inr(r.pl)}`,
+        raw(r.pl),
+        pct(r.plPct),
+        raw(r.realized),
+        `${r.weight.toFixed(2)}%`,
+        r.daysHeld != null ? `${r.daysHeld} days` : "—",
+        r.buyDate ?? "—",
       ]);
     });
-    csv.push(["TOTAL", "", "", "", "", "", invested.toFixed(2), current.toFixed(2), unrealized.toFixed(2), "", realized.toFixed(2), "", "", ""]);
+    csv.push([]);
+    csv.push([
+      "PORTFOLIO TOTAL", "", "",
+      rows.reduce((s, r) => s + r.qty, 0),
+      "", "",
+      inr(invested), raw(invested),
+      inr(current),  raw(current),
+      `${arrow(unrealized)} ${inr(unrealized)}`, raw(unrealized), pct(totalReturnPct),
+      raw(realized),
+      "100%", "", "",
+    ]);
+    csv.push([]);
     csv.push([]);
 
-    // ===== Section: Sell History =====
-    csv.push(["SELL HISTORY"]);
-    csv.push(["Date", "Ticker", "Qty", "Sell Price", "Avg Cost", "Amount", "Profit", "Profit %", "Holding Days", "Tax Type", "Buy Date"]);
+    // ═══════════════════════════════════════════════════════════════════════
+    //  SECTION 3 — SELL HISTORY
+    // ═══════════════════════════════════════════════════════════════════════
+    csv.push(["============================================================"]);
+    csv.push([`  SECTION 3 — SELL HISTORY  (${sells.length} trades)`]);
+    csv.push(["============================================================"]);
     if (sells.length === 0) {
-      csv.push(["No sales yet", "", "", "", "", "", "", "", "", "", ""]);
+      csv.push(["No sales recorded yet. Sell a stock to see history here."]);
     } else {
-      sells.forEach((t) => {
+      csv.push([
+        "Sell Date", "Buy Date", "Ticker",
+        "Qty Sold",
+        "Avg Buy Price", "Sell Price",
+        "Amount Received (Readable)", "Amount Received (Exact ₹)",
+        "Profit / Loss (Readable)", "Profit / Loss (Exact ₹)", "P&L %",
+        "Holding Period", "Tax Category",
+      ]);
+      const sortedSells = [...sells].sort((a, b) => Date.parse(b.date) - Date.parse(a.date));
+      sortedSells.forEach((t) => {
+        const profit = t.meta?.profit ?? 0;
         csv.push([
           t.date,
-          t.stock ?? "",
-          t.qty ?? "",
-          t.price?.toFixed(2) ?? "",
-          t.meta?.avgCost?.toFixed(2) ?? "",
-          t.amount.toFixed(2),
-          t.meta?.profit?.toFixed(2) ?? "",
-          t.meta?.profitPct?.toFixed(2) ?? "",
-          t.meta?.holdingDays ?? "",
-          t.meta?.type ?? "",
-          t.meta?.buyDate ?? "",
+          t.meta?.buyDate ?? "—",
+          t.stock ?? "—",
+          t.qty ?? "—",
+          t.meta?.avgCost != null ? `Rs. ${raw(t.meta.avgCost)}` : "—",
+          t.price != null         ? `Rs. ${raw(t.price)}`        : "—",
+          inr(t.amount),
+          raw(t.amount),
+          `${arrow(profit)} ${inr(profit)}`,
+          raw(profit),
+          t.meta?.profitPct != null ? pct(t.meta.profitPct) : "—",
+          t.meta?.holdingDays != null ? `${t.meta.holdingDays} days` : "—",
+          t.meta?.type ?? "—",
         ]);
       });
-      csv.push(["TOTAL REALIZED", "", "", "", "", "", realized.toFixed(2), "", "", "", ""]);
-    }
-    csv.push([]);
-
-    // ===== Section: Fund History =====
-    csv.push(["FUND HISTORY (Deposits & Withdrawals)"]);
-    csv.push(["Date", "Type", "Amount", "Running Balance", "Note"]);
-    const totalDeposits = funds.filter((t) => t.action === "DEPOSIT").reduce((s, t) => s + t.amount, 0);
-    const totalWithdrawals = funds.filter((t) => t.action === "WITHDRAW").reduce((s, t) => s + t.amount, 0);
-    if (funds.length === 0) {
-      csv.push(["No fund movements yet", "", "", "", ""]);
-    } else {
-      const sortedFunds = [...funds].sort((a, b) => Date.parse(a.date) - Date.parse(b.date));
-      let runningBal = 0;
-      sortedFunds.forEach((t) => {
-        if (t.action === "DEPOSIT") runningBal += t.amount;
-        else runningBal -= t.amount;
-        csv.push([t.date, t.action, t.amount.toFixed(2), runningBal.toFixed(2), t.meta?.type ?? ""]);
-      });
       csv.push([]);
-      csv.push(["TOTAL DEPOSITS", "", totalDeposits.toFixed(2), "", ""]);
-      csv.push(["TOTAL WITHDRAWALS", "", totalWithdrawals.toFixed(2), "", ""]);
-      csv.push(["NET FUNDS IN", "", (totalDeposits - totalWithdrawals).toFixed(2), "", ""]);
+      csv.push(["TOTAL REALIZED P&L", "", "", "", "", "", inr(realized), raw(realized), "", "", "", "", ""]);
     }
     csv.push([]);
+    csv.push([]);
 
-    // ===== Section: Buy History =====
-    const buys = transactions.filter((t) => t.action === "BUY");
-    csv.push(["BUY HISTORY"]);
-    csv.push(["Date", "Ticker", "Qty", "Buy Price (₹)", "Total Amount (₹)", "Avg Cost After (₹)"]);
+    // ═══════════════════════════════════════════════════════════════════════
+    //  SECTION 4 — BUY HISTORY
+    // ═══════════════════════════════════════════════════════════════════════
+    csv.push(["============================================================"]);
+    csv.push([`  SECTION 4 — BUY HISTORY  (${buys.length} trades)`]);
+    csv.push(["============================================================"]);
     if (buys.length === 0) {
-      csv.push(["No buys yet", "", "", "", "", ""]);
+      csv.push(["No buys recorded yet."]);
     } else {
+      csv.push([
+        "Buy Date", "Ticker",
+        "Qty Bought", "Buy Price",
+        "Total Deployed (Readable)", "Total Deployed (Exact ₹)",
+        "Avg Cost After This Buy",
+      ]);
       const sortedBuys = [...buys].sort((a, b) => Date.parse(b.date) - Date.parse(a.date));
       sortedBuys.forEach((t) => {
         csv.push([
           t.date,
-          t.stock ?? "",
-          t.qty ?? "",
-          t.price?.toFixed(2) ?? "",
-          t.amount.toFixed(2),
-          t.meta?.avgCost?.toFixed(2) ?? "",
+          t.stock ?? "—",
+          t.qty ?? "—",
+          t.price != null ? `Rs. ${raw(t.price)}` : "—",
+          inr(t.amount),
+          raw(t.amount),
+          t.meta?.avgCost != null ? `Rs. ${raw(t.meta.avgCost)}` : "—",
         ]);
       });
-      const totalBuyAmount = buys.reduce((s, t) => s + t.amount, 0);
+      const totalBought = buys.reduce((s, t) => s + t.amount, 0);
       csv.push([]);
-      csv.push(["TOTAL BUY AMOUNT", "", "", "", totalBuyAmount.toFixed(2), ""]);
+      csv.push(["TOTAL CAPITAL DEPLOYED", "", "", "", inr(totalBought), raw(totalBought), ""]);
     }
     csv.push([]);
+    csv.push([]);
 
-    // ===== Section: Portfolio Value Timeline =====
-    csv.push(["PORTFOLIO VALUE TIMELINE"]);
-    csv.push(["Date", "Event", "Stock", "Qty", "Price (₹)", "Cash Balance (₹)", "Holdings Cost Basis (₹)", "Total Portfolio Value (₹)"]);
-    const allTxSorted = [...transactions].sort((a, b) => Date.parse(a.date) - Date.parse(b.date));
+    // ═══════════════════════════════════════════════════════════════════════
+    //  SECTION 5 — FUND HISTORY  (Deposits & Withdrawals)
+    // ═══════════════════════════════════════════════════════════════════════
+    csv.push(["============================================================"]);
+    csv.push(["  SECTION 5 — FUND HISTORY  (Deposits & Withdrawals)"]);
+    csv.push(["============================================================"]);
+    const totalDeposits    = funds.filter((t) => t.action === "DEPOSIT").reduce((s, t) => s + t.amount, 0);
+    const totalWithdrawals = funds.filter((t) => t.action === "WITHDRAW").reduce((s, t) => s + t.amount, 0);
+    if (funds.length === 0) {
+      csv.push(["No fund movements yet. Add funds to get started."]);
+    } else {
+      csv.push(["Date", "Type", "Amount (Readable)", "Amount (Exact ₹)", "Running Balance (Readable)", "Running Balance (Exact ₹)"]);
+      const sortedFunds = [...funds].sort((a, b) => Date.parse(a.date) - Date.parse(b.date));
+      let runBal = 0;
+      sortedFunds.forEach((t) => {
+        runBal += t.action === "DEPOSIT" ? t.amount : -t.amount;
+        csv.push([
+          t.date,
+          t.action === "DEPOSIT" ? "Deposit  ▲" : "Withdrawal  ▼",
+          inr(t.amount),
+          raw(t.amount),
+          inr(runBal),
+          raw(runBal),
+        ]);
+      });
+      csv.push([]);
+      csv.push(["Total Deposited",    "", inr(totalDeposits),                           raw(totalDeposits),                           "", ""]);
+      csv.push(["Total Withdrawn",    "", inr(totalWithdrawals),                        raw(totalWithdrawals),                        "", ""]);
+      csv.push(["Net Funds Injected", "", inr(totalDeposits - totalWithdrawals),        raw(totalDeposits - totalWithdrawals),        "", ""]);
+    }
+    csv.push([]);
+    csv.push([]);
+
+    // ═══════════════════════════════════════════════════════════════════════
+    //  SECTION 6 — PORTFOLIO VALUE TIMELINE
+    //  (Shows cost-basis portfolio value at every transaction event —
+    //   paste this into Excel/Sheets to draw your growth chart)
+    // ═══════════════════════════════════════════════════════════════════════
+    csv.push(["============================================================"]);
+    csv.push(["  SECTION 6 — PORTFOLIO VALUE TIMELINE"]);
+    csv.push(["  Tip: Select Date + Total Portfolio Value columns in Excel"]);
+    csv.push(["  and Insert > Line Chart to visualise growth over time."]);
+    csv.push(["============================================================"]);
+    csv.push([
+      "Date", "Event", "Stock", "Qty", "Price",
+      "Cash Balance (Readable)", "Cash Balance (₹)",
+      "Holdings Cost Basis (Readable)", "Holdings Cost Basis (₹)",
+      "Total Portfolio Value (Readable)", "Total Portfolio Value (₹)",
+    ]);
+    const allTxChron = [...transactions].sort((a, b) => Date.parse(a.date) - Date.parse(b.date));
     let tlCash = 0;
     const tlHoldings: Record<string, { qty: number; avgPrice: number }> = {};
-    allTxSorted.forEach((t) => {
+    allTxChron.forEach((t) => {
       if (t.action === "DEPOSIT") {
         tlCash += t.amount;
       } else if (t.action === "WITHDRAW") {
@@ -257,16 +388,20 @@ onPricesChangeRef.current = onPricesChange;
           else tlHoldings[t.stock] = { ...ex, qty: nq };
         }
       }
-      const holdingsCostBasis = Object.values(tlHoldings).reduce((s, h) => s + h.qty * h.avgPrice, 0);
+      const holdingsBasis = Object.values(tlHoldings).reduce((s, h) => s + h.qty * h.avgPrice, 0);
+      const totalVal      = tlCash + holdingsBasis;
       csv.push([
         t.date,
         t.action,
-        t.stock ?? "",
-        t.qty?.toString() ?? "",
-        t.price?.toFixed(2) ?? "",
-        tlCash.toFixed(2),
-        holdingsCostBasis.toFixed(2),
-        (tlCash + holdingsCostBasis).toFixed(2),
+        t.stock ?? "—",
+        t.qty?.toString() ?? "—",
+        t.price != null ? `Rs. ${raw(t.price)}` : "—",
+        inr(tlCash),
+        raw(tlCash),
+        inr(holdingsBasis),
+        raw(holdingsBasis),
+        inr(totalVal),
+        raw(totalVal),
       ]);
     });
 
