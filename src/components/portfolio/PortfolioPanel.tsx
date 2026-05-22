@@ -184,17 +184,91 @@ onPricesChangeRef.current = onPricesChange;
 
     // ===== Section: Fund History =====
     csv.push(["FUND HISTORY (Deposits & Withdrawals)"]);
-    csv.push(["Date", "Type", "Amount"]);
+    csv.push(["Date", "Type", "Amount", "Running Balance", "Note"]);
     const totalDeposits = funds.filter((t) => t.action === "DEPOSIT").reduce((s, t) => s + t.amount, 0);
     const totalWithdrawals = funds.filter((t) => t.action === "WITHDRAW").reduce((s, t) => s + t.amount, 0);
     if (funds.length === 0) {
-      csv.push(["No fund movements yet", "", ""]);
+      csv.push(["No fund movements yet", "", "", "", ""]);
     } else {
-      funds.forEach((t) => csv.push([t.date, t.action, t.amount.toFixed(2)]));
-      csv.push(["TOTAL DEPOSITS", "", totalDeposits.toFixed(2)]);
-      csv.push(["TOTAL WITHDRAWALS", "", totalWithdrawals.toFixed(2)]);
-      csv.push(["NET FUNDS IN", "", (totalDeposits - totalWithdrawals).toFixed(2)]);
+      const sortedFunds = [...funds].sort((a, b) => Date.parse(a.date) - Date.parse(b.date));
+      let runningBal = 0;
+      sortedFunds.forEach((t) => {
+        if (t.action === "DEPOSIT") runningBal += t.amount;
+        else runningBal -= t.amount;
+        csv.push([t.date, t.action, t.amount.toFixed(2), runningBal.toFixed(2), t.meta?.type ?? ""]);
+      });
+      csv.push([]);
+      csv.push(["TOTAL DEPOSITS", "", totalDeposits.toFixed(2), "", ""]);
+      csv.push(["TOTAL WITHDRAWALS", "", totalWithdrawals.toFixed(2), "", ""]);
+      csv.push(["NET FUNDS IN", "", (totalDeposits - totalWithdrawals).toFixed(2), "", ""]);
     }
+    csv.push([]);
+
+    // ===== Section: Buy History =====
+    const buys = transactions.filter((t) => t.action === "BUY");
+    csv.push(["BUY HISTORY"]);
+    csv.push(["Date", "Ticker", "Qty", "Buy Price (₹)", "Total Amount (₹)", "Avg Cost After (₹)"]);
+    if (buys.length === 0) {
+      csv.push(["No buys yet", "", "", "", "", ""]);
+    } else {
+      const sortedBuys = [...buys].sort((a, b) => Date.parse(b.date) - Date.parse(a.date));
+      sortedBuys.forEach((t) => {
+        csv.push([
+          t.date,
+          t.stock ?? "",
+          t.qty ?? "",
+          t.price?.toFixed(2) ?? "",
+          t.amount.toFixed(2),
+          t.meta?.avgCost?.toFixed(2) ?? "",
+        ]);
+      });
+      const totalBuyAmount = buys.reduce((s, t) => s + t.amount, 0);
+      csv.push([]);
+      csv.push(["TOTAL BUY AMOUNT", "", "", "", totalBuyAmount.toFixed(2), ""]);
+    }
+    csv.push([]);
+
+    // ===== Section: Portfolio Value Timeline =====
+    csv.push(["PORTFOLIO VALUE TIMELINE"]);
+    csv.push(["Date", "Event", "Stock", "Qty", "Price (₹)", "Cash Balance (₹)", "Holdings Cost Basis (₹)", "Total Portfolio Value (₹)"]);
+    const allTxSorted = [...transactions].sort((a, b) => Date.parse(a.date) - Date.parse(b.date));
+    let tlCash = 0;
+    const tlHoldings: Record<string, { qty: number; avgPrice: number }> = {};
+    allTxSorted.forEach((t) => {
+      if (t.action === "DEPOSIT") {
+        tlCash += t.amount;
+      } else if (t.action === "WITHDRAW") {
+        tlCash -= t.amount;
+      } else if (t.action === "BUY" && t.stock && t.qty && t.price) {
+        tlCash -= t.amount;
+        const ex = tlHoldings[t.stock];
+        if (ex) {
+          const nq = ex.qty + t.qty;
+          tlHoldings[t.stock] = { qty: nq, avgPrice: (ex.avgPrice * ex.qty + t.price * t.qty) / nq };
+        } else {
+          tlHoldings[t.stock] = { qty: t.qty, avgPrice: t.price };
+        }
+      } else if (t.action === "SELL" && t.stock && t.qty) {
+        tlCash += t.amount;
+        const ex = tlHoldings[t.stock];
+        if (ex) {
+          const nq = ex.qty - t.qty;
+          if (nq <= 0) delete tlHoldings[t.stock];
+          else tlHoldings[t.stock] = { ...ex, qty: nq };
+        }
+      }
+      const holdingsCostBasis = Object.values(tlHoldings).reduce((s, h) => s + h.qty * h.avgPrice, 0);
+      csv.push([
+        t.date,
+        t.action,
+        t.stock ?? "",
+        t.qty?.toString() ?? "",
+        t.price?.toFixed(2) ?? "",
+        tlCash.toFixed(2),
+        holdingsCostBasis.toFixed(2),
+        (tlCash + holdingsCostBasis).toFixed(2),
+      ]);
+    });
 
     downloadCSV(csv, `portfolio-${today}.csv`);
   }, [rows, invested, current, realized, cashBalance, cagr, cagrYears, transactions]);
