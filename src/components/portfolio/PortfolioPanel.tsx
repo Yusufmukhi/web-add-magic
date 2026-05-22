@@ -6,7 +6,7 @@ import { HoldingsTable } from "./HoldingsTable";
 import { AllocationDonut } from "./AllocationDonut";
 import { PortfolioActions } from "./PortfolioActions";
 import { PortfolioValueChart } from "./PortfolioValueChart";
-import { downloadCSV, parseHoldingsCSV } from "@/utils/csv";
+import { downloadExcel, parseHoldingsExcel } from "@/utils/excel";
 import { toast } from "sonner";
 
 
@@ -116,7 +116,7 @@ onPricesChangeRef.current = onPricesChange;
     }, {})
   );
 
-  const handleExportCSV = useCallback(() => {
+  const handleExportExcel = useCallback(() => {
     const unrealized     = current - invested;
     const totalPL        = unrealized + realized;
     const totalReturnPct = invested > 0 ? (totalPL / invested) * 100 : 0;
@@ -405,7 +405,7 @@ onPricesChangeRef.current = onPricesChange;
       ]);
     });
 
-    downloadCSV(csv, `portfolio-${today}.csv`);
+    downloadExcel([{ name: "Portfolio Report", rows: csv }], `portfolio-${today}.xlsx`);
   }, [rows, invested, current, realized, cashBalance, cagr, cagrYears, transactions]);
 
 
@@ -424,14 +424,19 @@ onPricesChangeRef.current = onPricesChange;
         onWithdraw={onWithdraw}
         onBuy={onBuy}
         onSell={() => onSell()}
-        onExportCSV={handleExportCSV}
-        onImportCSV={onImportHoldings ? async (file) => {
-          const text = await file.text();
-          const { holdings, errors } = parseHoldingsCSV(text);
+        onExportExcel={handleExportExcel}
+        onImportExcel={onImportHoldings ? async (file) => {
+          const { holdings, errors } = await parseHoldingsExcel(file);
           if (errors.length) errors.slice(0, 3).forEach((e) => toast.error(e));
-          if (holdings.length === 0) { toast.error("No valid rows found"); return; }
+          if (holdings.length === 0) {
+            toast.error("No valid rows found in Excel file. Please check the format and try again.");
+            return;
+          }
           onImportHoldings(holdings);
-          toast.success(`Imported ${holdings.length} holding${holdings.length === 1 ? "" : "s"}`);
+          toast.success(
+            `✅ Successfully imported ${holdings.length} holding${holdings.length === 1 ? "" : "s"} from Excel!` +
+            (errors.length ? ` (${errors.length} row${errors.length === 1 ? "" : "s"} skipped — check errors above)` : "")
+          );
         } : undefined}
         canSell={portfolio.length > 0}
         canExport={portfolio.length > 0}
