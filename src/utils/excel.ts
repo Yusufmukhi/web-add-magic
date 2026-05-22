@@ -107,22 +107,17 @@ export const S = {
 };
 
 // ─── Hardcoded styles XML ─────────────────────────────────────────────────────
-// Colour palette (from reference file):
-//   Deep navy bg:       #0F1923
-//   Section bg:         #1A2632
-//   Header bg:          #2C3E50
-//   Green-tint:         #D5F0E0
-//   Red-tint:           #FDEDEC
-//   Blue-tint:          #EBF5FB
-//   Yellow-tint:        #FEF9E7
-//   Green text:         #1A6B3C
-//   Red text:           #C0392B
-//   Blue text:          #1A5276
-//   Gold/yellow text:   #7D6608
-//   White text:         #FFFFFF
-//   Teal muted text:    #7FB3C8
-//   Dark text:          #1C1C1E
-//   Total bar bg:       #2C3E50  (same as header) with white bold
+// LIGHT THEME palette:
+//   Page bg:            #FFFFFF
+//   Section bar bg:     #E5E7EB  (light grey, dark text)
+//   Meta strip bg:      #F3F4F6
+//   Header / Total bg:  #1F2937  (dark slate, white bold text — for contrast)
+//   Alt row bg:         #F9FAFB
+//   Green text:         #15803D   Green tint: #DCFCE7   (profit / buy / deposit)
+//   Red text:           #B91C1C   Red tint:   #FEE2E2   (loss / sell / withdraw)
+//   Blue text:          #1D4ED8   Blue tint:  #DBEAFE   (cash)
+//   Amber text:         #B45309   Amber tint: #FEF3C7   (realized / STCG)
+//   Dark text:          #111827   Muted text: #6B7280
 
 const STYLES_XML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
@@ -133,40 +128,41 @@ const STYLES_XML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
   <numFmt numFmtId="167" formatCode="#,##0.00\\%"/>
   <numFmt numFmtId="168" formatCode="#,##0"/>
 </numFmts>
-<fonts count="14">
-  <font><sz val="11"/><color theme="1"/><name val="Calibri"/><family val="2"/></font>
-  <font><b/><sz val="14"/><color rgb="FFFFFFFF"/><name val="Calibri"/><family val="2"/></font>
-  <font><sz val="9"/><color rgb="FF7FB3C8"/><name val="Calibri"/><family val="2"/></font>
+<fonts count="15">
+  <font><sz val="11"/><color rgb="FF111827"/><name val="Calibri"/><family val="2"/></font>
+  <font><b/><sz val="14"/><color rgb="FF111827"/><name val="Calibri"/><family val="2"/></font>
+  <font><sz val="9"/><color rgb="FF6B7280"/><name val="Calibri"/><family val="2"/></font>
   <font><b/><sz val="9"/><color rgb="FFFFFFFF"/><name val="Calibri"/><family val="2"/></font>
-  <font><sz val="9"/><color rgb="FF1C1C1E"/><name val="Calibri"/><family val="2"/></font>
-  <font><b/><sz val="10"/><color rgb="FF1C1C1E"/><name val="Calibri"/><family val="2"/></font>
-  <font><b/><sz val="10"/><color rgb="FF1A6B3C"/><name val="Calibri"/><family val="2"/></font>
-  <font><b/><sz val="10"/><color rgb="FF1A5276"/><name val="Calibri"/><family val="2"/></font>
-  <font><b/><sz val="10"/><color rgb="FF7D6608"/><name val="Calibri"/><family val="2"/></font>
-  <font><b/><sz val="9"/><color rgb="FF1A6B3C"/><name val="Calibri"/><family val="2"/></font>
+  <font><sz val="9"/><color rgb="FF111827"/><name val="Calibri"/><family val="2"/></font>
+  <font><b/><sz val="10"/><color rgb="FF111827"/><name val="Calibri"/><family val="2"/></font>
+  <font><b/><sz val="10"/><color rgb="FF15803D"/><name val="Calibri"/><family val="2"/></font>
+  <font><b/><sz val="10"/><color rgb="FF1D4ED8"/><name val="Calibri"/><family val="2"/></font>
+  <font><b/><sz val="10"/><color rgb="FFB45309"/><name val="Calibri"/><family val="2"/></font>
+  <font><b/><sz val="9"/><color rgb="FF15803D"/><name val="Calibri"/><family val="2"/></font>
   <font><b/><sz val="9"/><color rgb="FFFFFFFF"/><name val="Calibri"/><family val="2"/></font>
-  <font><b/><sz val="9"/><color rgb="FFC0392B"/><name val="Calibri"/><family val="2"/></font>
-  <font><b/><sz val="9"/><color rgb="FF7D6608"/><name val="Calibri"/><family val="2"/></font>
-  <font><b/><sz val="9"/><color rgb="FF1A5276"/><name val="Calibri"/><family val="2"/></font>
+  <font><b/><sz val="9"/><color rgb="FFB91C1C"/><name val="Calibri"/><family val="2"/></font>
+  <font><b/><sz val="9"/><color rgb="FFB45309"/><name val="Calibri"/><family val="2"/></font>
+  <font><b/><sz val="9"/><color rgb="FF1D4ED8"/><name val="Calibri"/><family val="2"/></font>
+  <font><b/><sz val="9"/><color rgb="FF111827"/><name val="Calibri"/><family val="2"/></font>
 </fonts>
 <fills count="12">
   <fill><patternFill patternType="none"/></fill>
   <fill><patternFill patternType="gray125"/></fill>
-  <fill><patternFill patternType="solid"><fgColor rgb="FF0F1923"/></patternFill></fill>
-  <fill><patternFill patternType="solid"><fgColor rgb="FF1A2632"/></patternFill></fill>
-  <fill><patternFill patternType="solid"><fgColor rgb="FF2C3E50"/></patternFill></fill>
+  <fill><patternFill patternType="solid"><fgColor rgb="FFE5E7EB"/></patternFill></fill>
+  <fill><patternFill patternType="solid"><fgColor rgb="FFF3F4F6"/></patternFill></fill>
+  <fill><patternFill patternType="solid"><fgColor rgb="FF1F2937"/></patternFill></fill>
   <fill><patternFill patternType="solid"><fgColor rgb="FFFFFFFF"/></patternFill></fill>
-  <fill><patternFill patternType="solid"><fgColor rgb="FFD5F0E0"/></patternFill></fill>
-  <fill><patternFill patternType="solid"><fgColor rgb="FFFDEDEC"/></patternFill></fill>
-  <fill><patternFill patternType="solid"><fgColor rgb="FFEBF5FB"/></patternFill></fill>
-  <fill><patternFill patternType="solid"><fgColor rgb="FFFEF9E7"/></patternFill></fill>
-  <fill><patternFill patternType="solid"><fgColor rgb="FFEBFBFF"/></patternFill></fill>
-  <fill><patternFill patternType="solid"><fgColor rgb="FF172A3A"/></patternFill></fill>
+  <fill><patternFill patternType="solid"><fgColor rgb="FFDCFCE7"/></patternFill></fill>
+  <fill><patternFill patternType="solid"><fgColor rgb="FFFEE2E2"/></patternFill></fill>
+  <fill><patternFill patternType="solid"><fgColor rgb="FFDBEAFE"/></patternFill></fill>
+  <fill><patternFill patternType="solid"><fgColor rgb="FFFEF3C7"/></patternFill></fill>
+  <fill><patternFill patternType="solid"><fgColor rgb="FFF9FAFB"/></patternFill></fill>
+  <fill><patternFill patternType="solid"><fgColor rgb="FF1F2937"/></patternFill></fill>
 </fills>
 <borders count="3">
   <border><left/><right/><top/><bottom/><diagonal/></border>
-  <border><left style="thin"><color rgb="FFD5D8DC"/></left><right style="thin"><color rgb="FFD5D8DC"/></right><top style="thin"><color rgb="FFD5D8DC"/></top><bottom style="thin"><color rgb="FFD5D8DC"/></bottom><diagonal/></border>
-  <border><left/><right/><top/><bottom style="thin"><color rgb="FFD5D8DC"/></bottom><diagonal/></border>
+  <border><left style="thin"><color rgb="FFE5E7EB"/></left><right style="thin"><color rgb="FFE5E7EB"/></right><top style="thin"><color rgb="FFE5E7EB"/></top><bottom style="thin"><color rgb="FFE5E7EB"/></bottom><diagonal/></border>
+  <border><left/><right/><top/><bottom style="thin"><color rgb="FFE5E7EB"/></bottom><diagonal/></border>
 </borders>
 <cellStyleXfs count="1">
   <xf numFmtId="164" fontId="0" fillId="0" borderId="0"/>
@@ -176,7 +172,7 @@ const STYLES_XML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
   <!--  1 SECTION_TITLE     --> <xf numFmtId="164" fontId="1"  fillId="2"  borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="center"/></xf>
   <!--  2 SECTION_EMPTY     --> <xf numFmtId="164" fontId="0"  fillId="2"  borderId="1" xfId="0" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="center"/></xf>
   <!--  3 META_LABEL        --> <xf numFmtId="164" fontId="2"  fillId="3"  borderId="2" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="center"/></xf>
-  <!--  4 META_DATE         --> <xf numFmtId="165" fontId="3"  fillId="3"  borderId="2" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="left" vertical="center"/></xf>
+  <!--  4 META_DATE         --> <xf numFmtId="165" fontId="14" fillId="3"  borderId="2" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="left" vertical="center"/></xf>
   <!--  5 META_EMPTY        --> <xf numFmtId="164" fontId="0"  fillId="3"  borderId="2" xfId="0" applyFill="1" applyBorder="1"/>
   <!--  6 COL_HEADER        --> <xf numFmtId="164" fontId="3"  fillId="4"  borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
   <!--  7 COL_HEADER_EMPTY  --> <xf numFmtId="164" fontId="0"  fillId="4"  borderId="1" xfId="0" applyFill="1" applyBorder="1"/>
@@ -194,9 +190,9 @@ const STYLES_XML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
   <!-- 19 HOLD_REALIZED A   --> <xf numFmtId="166" fontId="8"  fillId="5"  borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf>
   <!-- 20 HOLD_DAYS A       --> <xf numFmtId="168" fontId="4"  fillId="5"  borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf>
   <!-- 21 HOLD_DATE A       --> <xf numFmtId="165" fontId="4"  fillId="5"  borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
-  <!-- 22 TOTAL_LABEL       --> <xf numFmtId="164" fontId="10" fillId="4"  borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="center"/></xf>
-  <!-- 23 TOTAL_INR         --> <xf numFmtId="166" fontId="10" fillId="4"  borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf>
-  <!-- 24 TOTAL_EMPTY       --> <xf numFmtId="164" fontId="0"  fillId="4"  borderId="1" xfId="0" applyFill="1" applyBorder="1"/>
+  <!-- 22 TOTAL_LABEL       --> <xf numFmtId="164" fontId="10" fillId="11" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="center"/></xf>
+  <!-- 23 TOTAL_INR         --> <xf numFmtId="166" fontId="10" fillId="11" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf>
+  <!-- 24 TOTAL_EMPTY       --> <xf numFmtId="164" fontId="0"  fillId="11" borderId="1" xfId="0" applyFill="1" applyBorder="1"/>
   <!-- 25 HOLD_TEXT B       --> <xf numFmtId="164" fontId="4"  fillId="10" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="center"/></xf>
   <!-- 26 HOLD_INR B        --> <xf numFmtId="166" fontId="4"  fillId="10" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf>
   <!-- 27 HOLD_PCT B        --> <xf numFmtId="167" fontId="4"  fillId="10" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf>
