@@ -66,14 +66,17 @@ export function PortfolioActions({
                 </TooltipTrigger>
                 <TooltipContent side="bottom" className="max-w-xs text-xs leading-relaxed">
                   <p className="font-semibold mb-1">📥 Import Holdings from Excel</p>
-                  <p>Upload a <strong>.xlsx</strong> file with these columns:</p>
-                  <ul className="mt-1 space-y-0.5 list-disc list-inside">
+                  <p className="mb-1">Supports two formats:</p>
+                  <p className="font-medium text-teal-400">① Broker Export (Angel One, Zerodha, etc.)</p>
+                  <p className="text-muted-foreground mb-1">Upload your broker's holdings Excel directly — no changes needed.</p>
+                  <p className="font-medium text-teal-400">② Custom Excel</p>
+                  <ul className="mt-0.5 space-y-0.5 list-disc list-inside text-muted-foreground">
                     <li><strong>Ticker</strong> — Stock symbol (e.g. RELIANCE)</li>
                     <li><strong>Qty</strong> — Number of shares</li>
                     <li><strong>Price</strong> — Average buy price (₹)</li>
-                    <li><strong>Date</strong> — Buy date (optional, YYYY-MM-DD)</li>
+                    <li><strong>Date</strong> — Buy date (optional)</li>
                   </ul>
-                  <p className="mt-1 text-muted-foreground">Row 1 must be the header row. Existing holdings will be merged.</p>
+                  <p className="mt-1 text-muted-foreground">Existing holdings will be merged.</p>
                 </TooltipContent>
               </Tooltip>
             </>
