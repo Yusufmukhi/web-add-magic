@@ -229,11 +229,15 @@ onPricesChangeRef.current = onPricesChange;
       />
       <HoldingsTable rows={rows} onSell={onSell} />
       {portfolio.length > 0 && (
-        <div className="grid gap-4 md:grid-cols-2">
-          <AllocationDonut title="Allocation by Stock" data={allocByStock} />
-          <AllocationDonut title="Allocation by Sector" data={allocBySector} />
-        </div>
+        <>
+          <PortfolioValueChart portfolio={portfolio} />
+          <div className="grid gap-4 md:grid-cols-2">
+            <AllocationDonut title="Allocation by Stock" data={allocByStock} />
+            <AllocationDonut title="Allocation by Sector" data={allocBySector} />
+          </div>
+        </>
       )}
+
     </div>
   );
 }
