@@ -20,11 +20,14 @@ interface Props {
   onSell: (ticker?: string) => void;
   onPricesChange: (prices: Record<string, number>) => void;
   onImportHoldings?: (rows: { ticker: string; qty: number; price: number; date: string }[]) => void;
+  onEditHolding?: (ticker: string) => void;
+  onDeleteHolding?: (ticker: string) => void;
 }
 
 export function PortfolioPanel({
   portfolio, transactions, cashBalance,
   onAddFunds, onWithdraw, onBuy, onSell, onPricesChange, onImportHoldings,
+  onEditHolding, onDeleteHolding,
 }: Props) {
   const tickers = useMemo(() => portfolio.map((h) => h.ticker), [portfolio]);
   const quotes = useStockQuotes(tickers);
@@ -302,7 +305,7 @@ export function PortfolioPanel({
         } : undefined}
         canSell={portfolio.length > 0} canExport={portfolio.length > 0}
       />
-      <HoldingsTable rows={rows} onSell={onSell} />
+      <HoldingsTable rows={rows} onSell={onSell} onEdit={onEditHolding} onDelete={onDeleteHolding} />
       {portfolio.length > 0 && (
         <>
           <PortfolioValueChart portfolio={portfolio} />
