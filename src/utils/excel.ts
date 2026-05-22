@@ -63,13 +63,11 @@ export const S = {
   DATA_PCT:       10,  // % number
   DATA_EMPTY:     11,  // empty spacer
   // Data rows — highlighted green (current value / net worth)
-  DATA_LABEL_G:   11,  // reuse empty (no green label needed)
   DATA_INR_G:     12,  // ₹ number green text
   DATA_INR_B:     13,  // ₹ number blue text (cash)
   DATA_PCT_G:     14,  // CAGR % green
   // Performance rows
   DATA_PLAIN:     15,  // plain number (years)
-  // Holdings col header (same as COL_HEADER)
   // Holdings data: alternating dark rows
   HOLD_TEXT:      16,  // ticker / name text, white, border, row A
   HOLD_INR:       17,  // ₹, white, border, row A
@@ -101,13 +99,11 @@ export const S = {
   SELL_TEXT_B:    40,
   SELL_INR_B:     41,
   SELL_PROFIT_R:  42,  // loss — red bold
-  // Fund / BUY history
-  FUND_DATE:      36,  // reuse SELL_LTCG slot not possible — use specific
   // Timeline event colour badges
   EVT_BUY:        43,  // bold green on green-tint
   EVT_SELL:       44,  // bold red on red-tint
   EVT_DEPOSIT:    45,  // bold blue on blue-tint
-  EVT_EMPTY:      38,  // reuse
+  EVT_EMPTY:      38,  // reuse SELL_EMPTY
 };
 
 // ─── Hardcoded styles XML ─────────────────────────────────────────────────────
@@ -115,8 +111,6 @@ export const S = {
 //   Deep navy bg:       #0F1923
 //   Section bg:         #1A2632
 //   Header bg:          #2C3E50
-//   Light data bg A:    #FFFFFF  (actually white with dark text)
-//   Light data bg B:    #EBFBFF  no — use alternating fills
 //   Green-tint:         #D5F0E0
 //   Red-tint:           #FDEDEC
 //   Blue-tint:          #EBF5FB
@@ -216,7 +210,7 @@ const STYLES_XML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
   <!-- 35 SELL_DAYS A       --> <xf numFmtId="168" fontId="4"  fillId="5"  borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf>
   <!-- 36 SELL_LTCG         --> <xf numFmtId="164" fontId="9"  fillId="6"  borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
   <!-- 37 SELL_STCG         --> <xf numFmtId="164" fontId="12" fillId="9"  borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
-  <!-- 38 SELL_EMPTY / EVT_EMPTY --> <xf numFmtId="164" fontId="0" fillId="5" borderId="1" xfId="0" applyFill="1" applyBorder="1"/>
+  <!-- 38 SELL_EMPTY/EVT_EMPTY --> <xf numFmtId="164" fontId="0" fillId="5" borderId="1" xfId="0" applyFill="1" applyBorder="1"/>
   <!-- 39 SELL_DATE B       --> <xf numFmtId="165" fontId="4"  fillId="10" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
   <!-- 40 SELL_TEXT B       --> <xf numFmtId="164" fontId="4"  fillId="10" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="center"/></xf>
   <!-- 41 SELL_INR B        --> <xf numFmtId="166" fontId="4"  fillId="10" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf>
@@ -252,7 +246,7 @@ function buildSheetXml(rows: RowSpec[], colWidths: number[]): { sheetXml: string
     const cells = row.map((cell, ci) => {
       if (!cell) return "";
       const ref = `${col(ci)}${ri + 1}`;
-      const { v, s, t: forceType } = cell;
+      const { v, s } = cell;
       if (v === null || v === undefined || v === "") return `<c r="${ref}" s="${s}"/>`;
       if (typeof v === "number" && isFinite(v)) {
         return `<c r="${ref}" s="${s}" t="n"><v>${v}</v></c>`;
@@ -285,10 +279,10 @@ function buildSheetXml(rows: RowSpec[], colWidths: number[]): { sheetXml: string
 }
 
 // ─── ZIP builder (store, no compression) ─────────────────────────────────────
+// FIX: use TextEncoder instead of charCode-truncating loop so non-ASCII chars
+// (e.g. special characters in company names) don't corrupt the XML.
 function s2u(s: string): Uint8Array {
-  const b = new Uint8Array(s.length);
-  for (let i = 0; i < s.length; i++) b[i] = s.charCodeAt(i) & 0xff;
-  return b;
+  return new TextEncoder().encode(s);
 }
 function crc32(d: Uint8Array): number {
   const t = new Uint32Array(256);
