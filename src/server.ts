@@ -2,6 +2,7 @@ import "./lib/error-capture";
 
 import { consumeLastCapturedError } from "./lib/error-capture";
 import { renderErrorPage } from "./lib/error-page";
+import { handleApiRequest } from "./api-worker";
 
 type ServerEntry = {
   fetch: (request: Request, env: unknown, ctx: unknown) => Promise<Response> | Response;
@@ -68,6 +69,11 @@ async function normalizeCatastrophicSsrResponse(response: Response): Promise<Res
 
 export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
+    // Intercept /api/* routes and handle them in the Worker directly,
+    // bypassing the React SSR pipeline entirely.
+    const apiResponse = await handleApiRequest(request);
+    if (apiResponse) return apiResponse;
+
     try {
       const handler = await getServerEntry();
       const response = await handler.fetch(request, env, ctx);
