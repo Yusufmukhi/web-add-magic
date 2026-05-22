@@ -38,5 +38,18 @@ export function useWatchlist() {
     setTickers((prev) => prev.filter((x) => x !== t));
   }, []);
 
-  return { tickers, add, remove, hydrated };
+  /** Remove every ticker from the watchlist. */
+  const clearAll = useCallback(() => {
+    setTickers([]);
+  }, []);
+
+  /** Overwrite the watchlist (used by Import backup). */
+  const replaceAll = useCallback((next: string[]) => {
+    const clean = Array.from(
+      new Set((next ?? []).filter((x) => typeof x === "string").map((x) => x.trim().toUpperCase()).filter(Boolean))
+    );
+    setTickers(clean);
+  }, []);
+
+  return { tickers, add, remove, clearAll, replaceAll, hydrated };
 }
