@@ -5,8 +5,10 @@ import { PortfolioStats } from "./PortfolioStats";
 import { HoldingsTable } from "./HoldingsTable";
 import { AllocationDonut } from "./AllocationDonut";
 import { PortfolioActions } from "./PortfolioActions";
+import { PortfolioValueChart } from "./PortfolioValueChart";
 import { downloadCSV, parseHoldingsCSV } from "@/utils/csv";
 import { toast } from "sonner";
+
 
 interface Props {
   portfolio: Holding[];
@@ -115,22 +117,88 @@ onPricesChangeRef.current = onPricesChange;
   );
 
   const handleExportCSV = useCallback(() => {
-    downloadCSV(
-      [
-        ["Ticker", "Name", "Sector", "Qty", "Avg Cost", "CMP", "Invested", "Value", "P&L", "P/L %", "Realized", "Weight %", "Days Held", "Buy Date"],
-        ...rows.map((r) => [
-          r.ticker, r.name, r.sector, r.qty, r.avgPrice.toFixed(2), r.cp.toFixed(2),
-          r.invested.toFixed(2), r.value.toFixed(2), r.pl.toFixed(2), r.plPct.toFixed(2),
-          r.realized.toFixed(2), r.weight.toFixed(2), r.daysHeld ?? "", r.buyDate ?? "",
-        ]),
-        [],
-        ["Totals", "", "", "", "", "", invested.toFixed(2), current.toFixed(2), (current - invested).toFixed(2), "", realized.toFixed(2), "", "", ""],
-        ["Cash Balance", "", "", "", "", "", "", cashBalance.toFixed(2), "", "", "", "", "", ""],
-        ["CAGR %", "", "", "", "", "", "", cagr != null ? cagr.toFixed(2) : "—", "", "", "", "", "", ""],
-      ],
-      `portfolio-${new Date().toISOString().slice(0, 10)}.csv`
-    );
-  }, [rows, invested, current, realized, cashBalance, cagr]);
+    const unrealized = current - invested;
+    const totalPL = unrealized + realized;
+    const totalReturnPct = invested > 0 ? (totalPL / invested) * 100 : 0;
+    const netWorth = current + cashBalance;
+    const today = new Date().toISOString().slice(0, 10);
+
+    const sells = transactions.filter((t) => t.action === "SELL");
+    const funds = transactions.filter((t) => t.action === "DEPOSIT" || t.action === "WITHDRAW");
+
+    const rows: (string | number)[][] = [];
+
+    // ===== Section: Summary =====
+    rows.push(["PORTFOLIO SUMMARY", "", "", "", "", "", "", "", "", "", "", "", "", ""]);
+    rows.push(["Generated", today]);
+    rows.push(["Metric", "Value"]);
+    rows.push(["Invested", invested.toFixed(2)]);
+    rows.push(["Current Value", current.toFixed(2)]);
+    rows.push(["Cash Balance", cashBalance.toFixed(2)]);
+    rows.push(["Total Net Worth", netWorth.toFixed(2)]);
+    rows.push(["Unrealized P&L", unrealized.toFixed(2)]);
+    rows.push(["Realized P&L", realized.toFixed(2)]);
+    rows.push(["Total P&L", totalPL.toFixed(2)]);
+    rows.push(["Total Return %", totalReturnPct.toFixed(2) + "%"]);
+    rows.push(["CAGR %", cagr != null ? cagr.toFixed(2) + "%" : "—"]);
+    rows.push(["CAGR Years", cagrYears != null ? cagrYears.toFixed(2) : "—"]);
+    rows.push([]);
+
+    // ===== Section: Current Holdings =====
+    rows.push(["CURRENT HOLDINGS"]);
+    rows.push(["Ticker", "Name", "Sector", "Qty", "Avg Cost", "CMP", "Invested", "Value", "P&L", "P/L %", "Realized", "Weight %", "Days Held", "Buy Date"]);
+    portfolioRows.forEach((r) => {
+      rows.push([
+        r.ticker, r.name, r.sector, r.qty, r.avgPrice.toFixed(2), r.cp.toFixed(2),
+        r.invested.toFixed(2), r.value.toFixed(2), r.pl.toFixed(2), r.plPct.toFixed(2),
+        r.realized.toFixed(2), r.weight.toFixed(2), r.daysHeld ?? "", r.buyDate ?? "",
+      ]);
+    });
+    rows.push(["TOTAL", "", "", "", "", "", invested.toFixed(2), current.toFixed(2), unrealized.toFixed(2), "", realized.toFixed(2), "", "", ""]);
+    rows.push([]);
+
+    // ===== Section: Sell History =====
+    rows.push(["SELL HISTORY"]);
+    rows.push(["Date", "Ticker", "Qty", "Sell Price", "Avg Cost", "Amount", "Profit", "Profit %", "Holding Days", "Tax Type", "Buy Date"]);
+    if (sells.length === 0) {
+      rows.push(["No sales yet", "", "", "", "", "", "", "", "", "", ""]);
+    } else {
+      sells.forEach((t) => {
+        rows.push([
+          t.date,
+          t.stock ?? "",
+          t.qty ?? "",
+          t.price?.toFixed(2) ?? "",
+          t.meta?.avgCost?.toFixed(2) ?? "",
+          t.amount.toFixed(2),
+          t.meta?.profit?.toFixed(2) ?? "",
+          t.meta?.profitPct?.toFixed(2) ?? "",
+          t.meta?.holdingDays ?? "",
+          t.meta?.type ?? "",
+          t.meta?.buyDate ?? "",
+        ]);
+      });
+      rows.push(["TOTAL REALIZED", "", "", "", "", "", realized.toFixed(2), "", "", "", ""]);
+    }
+    rows.push([]);
+
+    // ===== Section: Fund History =====
+    rows.push(["FUND HISTORY (Deposits & Withdrawals)"]);
+    rows.push(["Date", "Type", "Amount"]);
+    const totalDeposits = funds.filter((t) => t.action === "DEPOSIT").reduce((s, t) => s + t.amount, 0);
+    const totalWithdrawals = funds.filter((t) => t.action === "WITHDRAW").reduce((s, t) => s + t.amount, 0);
+    if (funds.length === 0) {
+      rows.push(["No fund movements yet", "", ""]);
+    } else {
+      funds.forEach((t) => rows.push([t.date, t.action, t.amount.toFixed(2)]));
+      rows.push(["TOTAL DEPOSITS", "", totalDeposits.toFixed(2)]);
+      rows.push(["TOTAL WITHDRAWALS", "", totalWithdrawals.toFixed(2)]);
+      rows.push(["NET FUNDS IN", "", (totalDeposits - totalWithdrawals).toFixed(2)]);
+    }
+
+    downloadCSV(rows, `portfolio-${today}.csv`);
+  }, [portfolioRows, invested, current, realized, cashBalance, cagr, cagrYears, transactions]);
+
 
   return (
     <div className="space-y-6">
