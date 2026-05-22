@@ -1,10 +1,31 @@
 /**
  * Zero-dependency xlsx writer/reader.
  * Builds a valid .xlsx (OOXML) using only browser-native APIs — no npm packages needed.
+ * Supports rich formatting: cell colors, bold/italic fonts, number formats, borders.
  */
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type CellValue = string | number | null | undefined;
+
+export interface CellStyle {
+  bold?: boolean;
+  italic?: boolean;
+  fontSize?: number;             // points, default 11
+  fontColor?: string;            // hex RRGGBB e.g. "FF0000"
+  bgColor?: string;              // hex RRGGBB e.g. "1E3A5F"
+  numFmt?: string;               // Excel number format string
+  align?: "left" | "center" | "right";
+  wrapText?: boolean;
+  border?: boolean;              // thin border on all sides
+}
+
+export interface StyledCell {
+  v: CellValue;
+  s?: CellStyle;
+}
+
+// A row is either plain values OR styled cells
+type Row = (CellValue | StyledCell)[];
 
 export interface ImportedHolding {
   ticker: string;
@@ -33,8 +54,159 @@ function colName(n: number): string {
   return s;
 }
 
-// ─── Sheet + shared-strings XML builder ──────────────────────────────────────
-function buildSheetXml(rows: CellValue[][]): { sheetXml: string; ssXml: string } {
+// ─── Style registry ──────────────────────────────────────────────────────────
+// We build OOXML style parts: numFmts, fonts, fills, borders, cellXfs
+interface StyleEntry {
+  fontIdx: number;
+  fillIdx: number;
+  borderIdx: number;
+  numFmtId: number;
+  alignH?: string;
+  wrapText?: boolean;
+}
+
+class StyleBook {
+  numFmts: { id: number; code: string }[] = [];
+  fonts: string[] = [];
+  fills: string[] = [];
+  borders: string[] = [];
+  xfs: StyleEntry[] = [];
+
+  private numFmtMap = new Map<string, number>();
+  private fontMap = new Map<string, number>();
+  private fillMap = new Map<string, number>();
+  private borderMap = new Map<string, number>();
+  private xfMap = new Map<string, number>();
+  private nextNumFmtId = 164; // custom numFmt IDs start at 164
+
+  constructor() {
+    // Bootstrap required OOXML defaults
+    // 2 default fills required by spec
+    this._addFill('<fill><patternFill patternType="none"/></fill>');
+    this._addFill('<fill><patternFill patternType="gray125"/></fill>');
+    // Default border
+    this._addBorder("<border><left/><right/><top/><bottom/><diagonal/></border>");
+    // Default font
+    this._addFont('<font><sz val="11"/><name val="Arial"/></font>');
+  }
+
+  private _addFill(xml: string): number {
+    if (this.fillMap.has(xml)) return this.fillMap.get(xml)!;
+    const i = this.fills.length;
+    this.fills.push(xml);
+    this.fillMap.set(xml, i);
+    return i;
+  }
+  private _addFont(xml: string): number {
+    if (this.fontMap.has(xml)) return this.fontMap.get(xml)!;
+    const i = this.fonts.length;
+    this.fonts.push(xml);
+    this.fontMap.set(xml, i);
+    return i;
+  }
+  private _addBorder(xml: string): number {
+    if (this.borderMap.has(xml)) return this.borderMap.get(xml)!;
+    const i = this.borders.length;
+    this.borders.push(xml);
+    this.borderMap.set(xml, i);
+    return i;
+  }
+
+  getXfIndex(s: CellStyle): number {
+    const numFmtId = s.numFmt ? this._getNumFmtId(s.numFmt) : 0;
+
+    // Font
+    let fontXml = `<font>`;
+    if (s.bold) fontXml += `<b/>`;
+    if (s.italic) fontXml += `<i/>`;
+    fontXml += `<sz val="${s.fontSize ?? 11}"/>`;
+    if (s.fontColor) fontXml += `<color rgb="FF${s.fontColor}"/>`;
+    fontXml += `<name val="Arial"/>`;
+    fontXml += `</font>`;
+    const fontIdx = this._addFont(fontXml);
+
+    // Fill
+    let fillIdx = 0;
+    if (s.bgColor) {
+      const fillXml = `<fill><patternFill patternType="solid"><fgColor rgb="FF${s.bgColor}"/></patternFill></fill>`;
+      fillIdx = this._addFill(fillXml);
+    }
+
+    // Border
+    let borderIdx = 0;
+    if (s.border) {
+      const b = `<border><left style="thin"><color rgb="FFB0B0B0"/></left><right style="thin"><color rgb="FFB0B0B0"/></right><top style="thin"><color rgb="FFB0B0B0"/></top><bottom style="thin"><color rgb="FFB0B0B0"/></bottom><diagonal/></border>`;
+      borderIdx = this._addBorder(b);
+    }
+
+    const alignH = s.align;
+    const wrapText = s.wrapText;
+
+    const key = `${fontIdx}|${fillIdx}|${borderIdx}|${numFmtId}|${alignH}|${wrapText}`;
+    if (this.xfMap.has(key)) return this.xfMap.get(key)!;
+    const i = this.xfs.length;
+    this.xfs.push({ fontIdx, fillIdx, borderIdx, numFmtId, alignH, wrapText });
+    this.xfMap.set(key, i);
+    return i;
+  }
+
+  private _getNumFmtId(code: string): number {
+    if (this.numFmtMap.has(code)) return this.numFmtMap.get(code)!;
+    const id = this.nextNumFmtId++;
+    this.numFmts.push({ id, code });
+    this.numFmtMap.set(code, id);
+    return id;
+  }
+
+  toXml(): string {
+    const numFmtsXml = this.numFmts.length
+      ? `<numFmts count="${this.numFmts.length}">${this.numFmts.map((n) => `<numFmt numFmtId="${n.id}" formatCode="${escapeXml(n.code)}"/>`).join("")}</numFmts>`
+      : `<numFmts count="0"/>`;
+
+    const fontsXml = `<fonts count="${this.fonts.length}">${this.fonts.join("")}</fonts>`;
+    const fillsXml = `<fills count="${this.fills.length}">${this.fills.join("")}</fills>`;
+    const bordersXml = `<borders count="${this.borders.length}">${this.borders.join("")}</borders>`;
+
+    // cellStyleXfs — one default required
+    const cellStyleXfsXml = `<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>`;
+
+    const xfsXml =
+      `<cellXfs count="${this.xfs.length + 1}">` +
+      // index 0 = default
+      `<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>` +
+      this.xfs
+        .map((x) => {
+          let a = "";
+          if (x.alignH || x.wrapText) {
+            a = `<alignment${x.alignH ? ` horizontal="${x.alignH}"` : ""}${x.wrapText ? ` wrapText="1"` : ""}/>`;
+          }
+          return (
+            `<xf numFmtId="${x.numFmtId}" fontId="${x.fontIdx}" fillId="${x.fillIdx}" borderId="${x.borderIdx}" xfId="0"` +
+            (x.numFmtId ? ` applyNumberFormat="1"` : "") +
+            (x.fontIdx ? ` applyFont="1"` : "") +
+            (x.fillIdx ? ` applyFill="1"` : "") +
+            (x.borderIdx ? ` applyBorder="1"` : "") +
+            (a ? ` applyAlignment="1">` + a + `</xf>` : `/>`)
+          );
+        })
+        .join("") +
+      `</cellXfs>`;
+
+    const cellStylesXml = `<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>`;
+
+    return (
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+      `<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">` +
+      numFmtsXml + fontsXml + fillsXml + bordersXml +
+      cellStyleXfsXml + xfsXml + cellStylesXml +
+      `</styleSheet>`
+    );
+  }
+}
+
+// ─── Sheet + shared-strings + styles XML builder ──────────────────────────────
+function buildSheetXml(rows: Row[]): { sheetXml: string; ssXml: string; stylesXml: string } {
+  const sb = new StyleBook();
   const sharedStrings: string[] = [];
   const ssIndex = new Map<string, number>();
 
@@ -51,19 +223,31 @@ function buildSheetXml(rows: CellValue[][]): { sheetXml: string; ssXml: string }
 
   rows.forEach((row, ri) => {
     const cells: string[] = [];
-    row.forEach((val, ci) => {
+    row.forEach((raw, ci) => {
       const ref = `${colName(ci)}${ri + 1}`;
+
+      // Unwrap styled cell
+      const isStyled = raw !== null && typeof raw === "object" && "v" in raw;
+      const val: CellValue = isStyled ? (raw as StyledCell).v : (raw as CellValue);
+      const style: CellStyle | undefined = isStyled ? (raw as StyledCell).s : undefined;
+
       const content = String(val ?? "");
       const len = content.length;
       if (len + 2 > (colWidths[ci] ?? 0)) colWidths[ci] = Math.min(60, len + 2);
 
       if (val === null || val === undefined || content === "") return;
 
+      // Style index (0 = default)
+      let sIdx = 0;
+      if (style) sIdx = sb.getXfIndex(style) + 1; // +1 because index 0 in xfs is reserved default
+
+      const sAttr = sIdx ? ` s="${sIdx}"` : "";
+
       if (typeof val === "number" && isFinite(val)) {
-        cells.push(`<c r="${ref}"><v>${val}</v></c>`);
+        cells.push(`<c r="${ref}"${sAttr}><v>${val}</v></c>`);
       } else {
         const si = getSSI(escapeXml(content));
-        cells.push(`<c r="${ref}" t="s"><v>${si}</v></c>`);
+        cells.push(`<c r="${ref}" t="s"${sAttr}><v>${si}</v></c>`);
       }
     });
     cellRows.push(`<row r="${ri + 1}">${cells.join("")}</row>`);
@@ -80,6 +264,7 @@ function buildSheetXml(rows: CellValue[][]): { sheetXml: string; ssXml: string }
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
     `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">` +
     `<dimension ref="${dim}"/>` +
+    `<sheetViews><sheetView workbookViewId="0"><selection activeCell="A1" sqref="A1"/></sheetView></sheetViews>` +
     `<cols>${colDefs}</cols>` +
     `<sheetData>${cellRows.join("")}</sheetData>` +
     `</worksheet>`;
@@ -90,7 +275,7 @@ function buildSheetXml(rows: CellValue[][]): { sheetXml: string; ssXml: string }
     sharedStrings.map((s) => `<si><t xml:space="preserve">${s}</t></si>`).join("") +
     `</sst>`;
 
-  return { sheetXml, ssXml };
+  return { sheetXml, ssXml, stylesXml: sb.toXml() };
 }
 
 // ─── Minimal ZIP builder (store, no compression) ──────────────────────────────
@@ -119,14 +304,14 @@ function cat(...a: Uint8Array[]) {
   let off = 0; a.forEach((x) => { out.set(x, off); off += x.length; }); return out;
 }
 
-function buildZip(files: { name: string; content: string }[]): Uint8Array {
+function buildZip(files: { name: string; content: string | Uint8Array }[]): Uint8Array {
   const entries: { nameB: Uint8Array; data: Uint8Array; crc: number; offset: number }[] = [];
   const locals: Uint8Array[] = [];
   let offset = 0;
 
   files.forEach(({ name, content }) => {
     const nameB = str2u8(name);
-    const data = str2u8(content);
+    const data = typeof content === "string" ? str2u8(content) : content;
     const crc = crc32(data);
     const local = cat(
       new Uint8Array([0x50, 0x4b, 0x03, 0x04]),
@@ -163,11 +348,11 @@ function buildZip(files: { name: string; content: string }[]): Uint8Array {
 
 // ─── Public: download xlsx ────────────────────────────────────────────────────
 export function downloadExcel(
-  sheets: { name: string; rows: CellValue[][] }[],
+  sheets: { name: string; rows: Row[] }[],
   filename: string
 ): void {
   const { rows, name } = sheets[0];
-  const { sheetXml, ssXml } = buildSheetXml(rows);
+  const { sheetXml, ssXml, stylesXml } = buildSheetXml(rows);
   const sheetName = name.slice(0, 31).replace(/[:\\/?*[\]]/g, "_");
 
   const files = [
@@ -181,6 +366,7 @@ export function downloadExcel(
         `<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>` +
         `<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>` +
         `<Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/>` +
+        `<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>` +
         `</Types>`,
     },
     {
@@ -206,10 +392,12 @@ export function downloadExcel(
         `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
         `<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>` +
         `<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings" Target="sharedStrings.xml"/>` +
+        `<Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>` +
         `</Relationships>`,
     },
     { name: "xl/worksheets/sheet1.xml", content: sheetXml },
     { name: "xl/sharedStrings.xml", content: ssXml },
+    { name: "xl/styles.xml", content: stylesXml },
   ];
 
   const blob = new Blob([buildZip(files)], {
@@ -340,4 +528,69 @@ export async function parseHoldingsExcel(
   }
 
   return { holdings, errors };
+}
+
+// ─── Styled cell helpers (for use in PortfolioPanel) ─────────────────────────
+
+/** Dark navy header row — white bold text */
+export const S_SECTION_HEADER: CellStyle = {
+  bold: true, fontSize: 13, fontColor: "FFFFFF", bgColor: "1B2A4A",
+};
+
+/** Medium blue sub-header — white bold */
+export const S_COL_HEADER: CellStyle = {
+  bold: true, fontSize: 10, fontColor: "FFFFFF", bgColor: "2E5A9C", border: true,
+};
+
+/** Positive P&L — dark green text */
+export const S_GAIN: CellStyle = {
+  bold: true, fontColor: "1A6B3A", border: true,
+};
+
+/** Negative P&L — red text */
+export const S_LOSS: CellStyle = {
+  bold: true, fontColor: "C0392B", border: true,
+};
+
+/** Totals row — light blue background, bold */
+export const S_TOTAL: CellStyle = {
+  bold: true, bgColor: "D6E4F7", border: true,
+};
+
+/** Metadata label — gray italic */
+export const S_META_LABEL: CellStyle = {
+  italic: true, fontColor: "555555",
+};
+
+/** Metric label in summary block */
+export const S_METRIC_LABEL: CellStyle = {
+  bold: true, fontColor: "1B2A4A",
+};
+
+/** Metric value — blue */
+export const S_METRIC_VAL: CellStyle = {
+  bold: true, fontColor: "2E5A9C",
+};
+
+/** Normal data cell with border */
+export const S_DATA: CellStyle = { border: true };
+
+/** Alternating row — very light gray */
+export const S_ALT_ROW: CellStyle = { bgColor: "F4F7FB", border: true };
+
+/** Indian Rupee number format */
+export const FMT_INR = '₹#,##0.00;[Red]-₹#,##0.00';
+export const FMT_PCT = '+0.00%;-0.00%';
+export const FMT_INT = '#,##0';
+
+/** Convenience: create a styled cell */
+export function sc(v: CellValue, s: CellStyle): StyledCell {
+  return { v, s };
+}
+
+/** Styled cell for a P&L number (green if >= 0, red if < 0) */
+export function plCell(v: number | null | undefined, label?: string): StyledCell {
+  const n = v ?? 0;
+  const style: CellStyle = n >= 0 ? S_GAIN : S_LOSS;
+  return { v: label ?? (n >= 0 ? `▲ ${n.toFixed(2)}` : `▼ ${Math.abs(n).toFixed(2)}`), s: style };
 }
