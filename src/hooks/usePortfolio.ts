@@ -141,6 +141,61 @@ export function usePortfolioState() {
     [portfolio, setCashBalance, setPortfolio, setTransactions]
   );
 
+  /** Edit a holding's qty / avg buy price / first buy date. Does NOT touch cash or transactions. */
+  const editHolding = useCallback(
+    (
+      ticker: string,
+      patch: { qty?: number; avgPrice?: number; buyDate?: string }
+    ): boolean => {
+      let ok = false;
+      setPortfolio((prev) =>
+        prev.map((h) => {
+          if (h.ticker !== ticker) return h;
+          const next: Holding = {
+            ...h,
+            qty: patch.qty != null && patch.qty > 0 ? patch.qty : h.qty,
+            avgPrice:
+              patch.avgPrice != null && patch.avgPrice > 0 ? patch.avgPrice : h.avgPrice,
+            buyDate: patch.buyDate || h.buyDate,
+          };
+          ok = true;
+          return next;
+        })
+      );
+      return ok;
+    },
+    [setPortfolio]
+  );
+
+  /** Delete a single holding entirely. Does NOT refund cash. */
+  const deleteHolding = useCallback(
+    (ticker: string) => {
+      setPortfolio((prev) => prev.filter((h) => h.ticker !== ticker));
+    },
+    [setPortfolio]
+  );
+
+  /** Wipe portfolio + transactions + cash. */
+  const resetPortfolio = useCallback(() => {
+    setPortfolio([]);
+    setTransactions([]);
+    setCashBalance(0);
+  }, [setPortfolio, setTransactions, setCashBalance]);
+
+  /** Replace full state (used by Import backup). */
+  const replaceState = useCallback(
+    (state: {
+      portfolio: Holding[];
+      transactions: Transaction[];
+      cashBalance: number;
+    }) => {
+      setPortfolio(Array.isArray(state.portfolio) ? state.portfolio : []);
+      setTransactions(Array.isArray(state.transactions) ? state.transactions : []);
+      setCashBalance(typeof state.cashBalance === "number" ? state.cashBalance : 0);
+    },
+    [setPortfolio, setTransactions, setCashBalance]
+  );
+
   return {
     portfolio,
     transactions,
@@ -149,5 +204,9 @@ export function usePortfolioState() {
     withdrawFunds,
     buy,
     sell,
+    editHolding,
+    deleteHolding,
+    resetPortfolio,
+    replaceState,
   };
 }
