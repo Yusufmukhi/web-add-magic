@@ -1,10 +1,12 @@
 import { useMemo } from "react";
-import { Download } from "lucide-react";
+import { Download, FileSpreadsheet } from "lucide-react";
 import type { Transaction } from "@/types/portfolio.types";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { formatINR, formatNumber } from "@/utils/formatters";
 import { downloadCSV } from "@/utils/csv";
+import { downloadExcel, toSerial, S, n, t, empty } from "@/utils/excel";
+import type { CellDef } from "@/utils/excel";
 
 interface Props {
   transactions: Transaction[];
@@ -55,6 +57,70 @@ export function SoldStocksPanel({ transactions }: Props) {
     );
   };
 
+  const exportExcel = () => {
+    const headers: (CellDef | null)[] = [
+      t("Sell Date", S.COL_HEADER),
+      t("Buy Date", S.COL_HEADER),
+      t("Stock", S.COL_HEADER),
+      t("Qty", S.COL_HEADER),
+      t("Buy ₹", S.COL_HEADER),
+      t("Sell ₹", S.COL_HEADER),
+      t("Gross", S.COL_HEADER),
+      t("Charges", S.COL_HEADER),
+      t("Net Proceeds", S.COL_HEADER),
+      t("Profit", S.COL_HEADER),
+      t("P/L %", S.COL_HEADER),
+      t("Days", S.COL_HEADER),
+      t("Type", S.COL_HEADER),
+    ];
+    const dataRows = sells.map((tx, i): (CellDef | null)[] => {
+      const alt = i % 2 === 1;
+      const dateS = alt ? S.SELL_DATE_B : S.SELL_DATE;
+      const textS = alt ? S.SELL_TEXT_B : S.SELL_TEXT;
+      const inrS = alt ? S.SELL_INR_B : S.SELL_INR;
+      const daysS = S.SELL_DAYS;
+      const profit = tx.meta?.profit ?? 0;
+      const profitS = profit >= 0 ? S.SELL_PROFIT_G : S.SELL_PROFIT_R;
+      const typeS = (tx.meta?.type === "LTCG") ? S.SELL_LTCG : S.SELL_STCG;
+      return [
+        n(toSerial(tx.date), dateS),
+        n(toSerial(tx.meta?.buyDate ?? null), dateS),
+        t(tx.stock ?? "", textS),
+        n(tx.qty ?? 0, daysS),
+        n(tx.meta?.avgCost ?? null, inrS),
+        n(tx.price ?? null, inrS),
+        n(tx.meta?.grossAmount ?? tx.amount, inrS),
+        n(tx.meta?.charges ?? 0, inrS),
+        n(tx.amount, inrS),
+        n(profit, profitS),
+        n(tx.meta?.profitPct != null ? tx.meta.profitPct / 100 : null, inrS),
+        n(tx.meta?.holdingDays ?? null, daysS),
+        t(tx.meta?.type ?? "", typeS),
+      ];
+    });
+    const totalRow: (CellDef | null)[] = [
+      t("TOTAL", S.TOTAL_LABEL),
+      empty(S.TOTAL_EMPTY),
+      empty(S.TOTAL_EMPTY),
+      empty(S.TOTAL_EMPTY),
+      empty(S.TOTAL_EMPTY),
+      empty(S.TOTAL_EMPTY),
+      empty(S.TOTAL_EMPTY),
+      empty(S.TOTAL_EMPTY),
+      n(totals.proceeds, S.TOTAL_INR),
+      n(totals.realized, S.TOTAL_INR),
+      empty(S.TOTAL_EMPTY),
+      empty(S.TOTAL_EMPTY),
+      empty(S.TOTAL_EMPTY),
+    ];
+    const widths = [12, 12, 14, 8, 12, 12, 14, 12, 14, 14, 10, 8, 8];
+    downloadExcel(
+      [headers, ...dataRows, totalRow],
+      widths,
+      `sold-stocks-${new Date().toISOString().slice(0, 10)}.xlsx`
+    );
+  };
+
   return (
     <div className="space-y-4">
       <div className="grid gap-3 sm:grid-cols-3">
@@ -65,9 +131,14 @@ export function SoldStocksPanel({ transactions }: Props) {
 
       <div className="flex items-center justify-between">
         <h3 className="font-display text-lg font-semibold">Sold Stocks History</h3>
-        <Button variant="outline" size="sm" onClick={exportCSV} className="gap-2 minimal:rounded-none">
-          <Download className="h-3.5 w-3.5" /> CSV
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={exportCSV} className="gap-2 minimal:rounded-none">
+            <Download className="h-3.5 w-3.5" /> CSV
+          </Button>
+          <Button variant="outline" size="sm" onClick={exportExcel} disabled={sells.length === 0} className="gap-2 minimal:rounded-none">
+            <FileSpreadsheet className="h-3.5 w-3.5" /> Excel
+          </Button>
+        </div>
       </div>
 
       <div className="overflow-x-auto rounded-2xl border border-border bg-card creative:shadow-soft minimal:rounded-none minimal:border-x-0 minimal:bg-transparent">
