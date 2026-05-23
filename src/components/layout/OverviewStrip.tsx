@@ -90,15 +90,15 @@ export function OverviewStrip({
         return (
           <div
             key={s.label}
-            className="rounded-xl border border-border bg-card p-3 creative:gradient-card creative:shadow-soft minimal:rounded-none minimal:border-l-2 minimal:border-y-0 minimal:border-r-0 minimal:bg-transparent"
+            className="min-w-0 rounded-xl border border-border bg-card p-2.5 creative:gradient-card creative:shadow-soft minimal:rounded-none minimal:border-l-2 minimal:border-y-0 minimal:border-r-0 minimal:bg-transparent sm:p-3"
           >
-            <div className="flex items-center justify-between">
-              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{s.label}</p>
-              <Icon className={`h-3.5 w-3.5 ${s.tone || "text-muted-foreground"}`} />
+            <div className="flex items-center justify-between gap-1">
+              <p className="truncate text-[10px] uppercase tracking-wider text-muted-foreground">{s.label}</p>
+              <Icon className={`h-3.5 w-3.5 shrink-0 ${s.tone || "text-muted-foreground"}`} />
             </div>
-            <p className={`mt-1 font-display text-xl font-bold leading-tight ${s.tone}`}>{s.value}</p>
+            <p className={`mt-1 truncate font-display text-base font-bold leading-tight sm:text-xl ${s.tone}`}>{s.value}</p>
             {s.sub && (
-              <p className={`mt-0.5 font-mono text-[11px] ${s.tone || "text-muted-foreground"}`}>{s.sub}</p>
+              <p className={`mt-0.5 truncate font-mono text-[10px] sm:text-[11px] ${s.tone || "text-muted-foreground"}`}>{s.sub}</p>
             )}
           </div>
         );
