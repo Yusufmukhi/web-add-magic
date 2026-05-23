@@ -15,6 +15,12 @@ export interface TxMeta {
   holdingDays?: number;
   profit?: number;
   profitPct?: number;
+  /** Total sell-side charges (brokerage + STT + GST + DP + …). */
+  charges?: number;
+  /** Gross sell value before deducting charges. */
+  grossAmount?: number;
+  /** User-entered description on deposits / withdrawals / trades. */
+  note?: string;
 }
 
 export interface Transaction {
