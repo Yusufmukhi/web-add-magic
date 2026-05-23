@@ -10,14 +10,19 @@ interface Props {
   cagr: number | null;
   /** Years over which CAGR was measured. */
   cagrYears: number | null;
+  /** Net deposits (DEPOSIT − WITHDRAW). Used for absolute Profit metric. */
+  totalDeposits: number;
 }
 
-export function PortfolioStats({ invested, current, realized, cashBalance, cagr, cagrYears }: Props) {
+export function PortfolioStats({ invested, current, realized, cashBalance, cagr, cagrYears, totalDeposits }: Props) {
   const unrealized = current - invested;
   const unrealizedPct = invested > 0 ? (unrealized / invested) * 100 : 0;
   const totalPL = unrealized + realized;
   const totalNetWorth = current + cashBalance;
   const totalReturnPct = invested > 0 ? (totalPL / invested) * 100 : 0;
+  // Deposit-based profit: how much your invested money has grown vs cash put in.
+  const profitValue = current + realized - totalDeposits;
+  const profitPct = totalDeposits > 0 ? (profitValue / totalDeposits) * 100 : 0;
 
   return (
     <div className="space-y-3">
@@ -54,6 +59,27 @@ export function PortfolioStats({ invested, current, realized, cashBalance, cagr,
           value={cagr == null ? "—" : `${formatNumber(cagr, 2)}%`}
           tone={cagr == null ? undefined : cagr >= 0 ? "gain" : "loss"}
           hint={cagrYears ? `Over ${cagrYears.toFixed(2)} yrs` : "Annualized return"}
+        />
+      </div>
+
+      {/* Row 3 — Deposit-based profit */}
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+        <StatCard
+          label="Total Deposits"
+          value={formatINR(totalDeposits)}
+          hint="Net funds added (Deposits − Withdrawals)"
+        />
+        <StatCard
+          label="Profit Value"
+          value={formatINR(profitValue)}
+          tone={profitValue >= 0 ? "gain" : "loss"}
+          hint="Current + Realized − Deposits"
+        />
+        <StatCard
+          label="% Profit"
+          value={totalDeposits > 0 ? `${formatNumber(profitPct, 2)}%` : "—"}
+          tone={totalDeposits > 0 ? (profitValue >= 0 ? "gain" : "loss") : undefined}
+          hint="Return on money deposited"
         />
       </div>
     </div>
