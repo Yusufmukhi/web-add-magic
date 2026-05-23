@@ -23,6 +23,7 @@ import { SettingsPanel, type BackupShape } from "@/components/settings/SettingsP
 import { useWatchlist } from "@/hooks/useWatchlist";
 import { useStockQuote, useStockQuotes } from "@/hooks/useStockQuote";
 import { usePortfolioState } from "@/hooks/usePortfolio";
+import { xirr } from "@/utils/finance";
 import type { Holding } from "@/types/portfolio.types";
 
 export const Route = createFileRoute("/")({ component: DashboardPage });
@@ -76,12 +77,12 @@ function DashboardPage() {
   );
 
   const handleSell = useCallback(
-    (ticker: string, price: number, qty: number, date: string) => {
-      const ok = sell(ticker, price, qty, date);
+    (ticker: string, price: number, qty: number, date: string, charges: number) => {
+      const ok = sell(ticker, price, qty, date, charges);
       if (!ok) { toast.error("Sell failed"); return false; }
       const pl = portfolio.find((h) => h.ticker === ticker);
-      const profit = pl ? (price - pl.avgPrice) * qty : 0;
-      toast.success(`Sold ${qty} × ${ticker} | P&L: ${profit >= 0 ? "+" : ""}₹${profit.toFixed(2)}`);
+      const profit = pl ? (price - pl.avgPrice) * qty - charges : 0;
+      toast.success(`Sold ${qty} × ${ticker} | Net P&L: ${profit >= 0 ? "+" : ""}₹${profit.toFixed(2)}`);
       return true;
     },
     [sell, portfolio]
@@ -157,19 +158,26 @@ function DashboardPage() {
       (a, t) => (t.action === "SELL" && t.meta?.profit != null ? a + t.meta.profit : a),
       0
     );
+    // Money-weighted CAGR (XIRR) — works even when all stocks are sold.
+    // BUYs = outflow (negative), SELLs (net of charges) = inflow (positive),
+    // current MV of open holdings = terminal inflow today.
+    const flows: number[] = [];
+    const dates: string[] = [];
+    const sortedTx = [...transactions]
+      .filter((t) => (t.action === "BUY" || t.action === "SELL") && t.date)
+      .sort((a, b) => Date.parse(a.date) - Date.parse(b.date));
+    sortedTx.forEach((t) => {
+      if (t.action === "BUY") { flows.push(-t.amount); dates.push(t.date); }
+      else if (t.action === "SELL") { flows.push(t.amount); dates.push(t.date); }
+    });
+    if (cur > 0) {
+      flows.push(cur);
+      dates.push(new Date().toISOString().slice(0, 10));
+    }
     let c: number | null = null;
-    if (inv > 0 && cur > 0) {
-      const buyDates = transactions
-        .filter((t) => t.action === "BUY" && t.date)
-        .map((t) => Date.parse(t.date))
-        .filter((n) => !isNaN(n));
-      if (buyDates.length) {
-        const years = (Date.now() - Math.min(...buyDates)) / (365.25 * 86400000);
-        if (years > 0.0274) {
-          const v = (Math.pow(cur / inv, 1 / years) - 1) * 100;
-          c = isFinite(v) ? v : null;
-        }
-      }
+    if (flows.length >= 2) {
+      const r = xirr(flows, dates);
+      if (r != null && isFinite(r)) c = r * 100;
     }
     return { current: cur, realized: real, cagr: c };
   }, [portfolio, portfolioPrices, transactions]);
@@ -290,13 +298,13 @@ function DashboardPage() {
         open={modal === "add"}
         onClose={() => setModal(null)}
         cashBalance={cashBalance}
-        onConfirm={(amt) => { addFunds(amt); toast.success(`Added ₹${amt.toFixed(2)}`); }}
+        onConfirm={(amt, note) => { addFunds(amt, note); toast.success(`Added ₹${amt.toFixed(2)}`); }}
       />
       <WithdrawModal
         open={modal === "withdraw"}
         onClose={() => setModal(null)}
         cashBalance={cashBalance}
-        onConfirm={(amt) => { const ok = withdrawFunds(amt); if (ok) toast.success(`Withdrew ₹${amt.toFixed(2)}`); return ok; }}
+        onConfirm={(amt, note) => { const ok = withdrawFunds(amt, note); if (ok) toast.success(`Withdrew ₹${amt.toFixed(2)}`); return ok; }}
       />
       <BuyStockModal
         open={modal === "buy"}
