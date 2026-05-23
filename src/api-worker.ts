@@ -8,6 +8,7 @@
  *   GET /api/yahoo/quote/:ticker
  *   GET /api/yahoo/history/:ticker?period=1mo
  *   GET /api/yahoo/search?q=...
+ *   GET /api/yahoo/news/:ticker
  *   GET /api/
  */
 
@@ -44,13 +45,12 @@ async function withCache<T>(key: string, ttlMs: number, fn: () => Promise<T>): P
 
 // ---------------------------------------------------------------------------
 // Yahoo Finance — cookie + crumb auth
-// Yahoo requires: first GET consent page → extract cookie → get crumb → use both
 // ---------------------------------------------------------------------------
 
 let _crumb: string | null = null;
 let _cookie: string | null = null;
 let _crumbFetchedAt = 0;
-const CRUMB_TTL = 55 * 60 * 1000; // refresh every 55 min
+const CRUMB_TTL = 55 * 60 * 1000;
 
 const BASE_HEADERS = {
   "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -60,20 +60,17 @@ const BASE_HEADERS = {
 };
 
 async function fetchCrumb(): Promise<{ crumb: string; cookie: string }> {
-  // Step 1: hit Yahoo Finance to get session cookie
   const cookieRes = await fetch("https://finance.yahoo.com/", {
     headers: { ...BASE_HEADERS, "Accept": "text/html,application/xhtml+xml,*/*" },
     redirect: "follow",
   });
   const rawCookie = cookieRes.headers.get("set-cookie") ?? "";
-  // Extract just the A3 or session cookies Yahoo needs
   const cookie = rawCookie
     .split(",")
     .map((c) => c.split(";")[0].trim())
     .filter((c) => c.includes("="))
     .join("; ");
 
-  // Step 2: fetch crumb using the cookie
   const crumbRes = await fetch("https://query1.finance.yahoo.com/v1/test/getcrumb", {
     headers: { ...BASE_HEADERS, Cookie: cookie },
   });
@@ -101,7 +98,6 @@ async function yfFetch(url: string): Promise<unknown> {
     headers: { ...BASE_HEADERS, Cookie: cookie, Origin: "https://finance.yahoo.com", Referer: "https://finance.yahoo.com/" },
   });
   if (res.status === 401 || res.status === 403) {
-    // Crumb expired mid-session — force refresh and retry once
     _crumb = null; _cookie = null;
     const auth2 = await getAuth();
     const retryUrl = url.includes("?")
@@ -128,7 +124,6 @@ function toNS(ticker: string): string {
 
 // ---------------------------------------------------------------------------
 // Quote  →  /api/yahoo/quote/:ticker
-// Uses v8 chart + v10 quoteSummary fallback, both with crumb auth
 // ---------------------------------------------------------------------------
 async function handleQuote(ticker: string): Promise<unknown> {
   const symbol = toNS(ticker);
@@ -188,6 +183,38 @@ async function handleSearch(query: string): Promise<unknown> {
 }
 
 // ---------------------------------------------------------------------------
+// News  →  /api/yahoo/news/:ticker
+// Returns up to 6 news items for the given ticker (15-min cache)
+// ---------------------------------------------------------------------------
+interface YahooNewsItem {
+  uuid?: string;
+  title?: string;
+  link?: string;
+  providerPublishTime?: number;
+  publisher?: string;
+  thumbnail?: { resolutions?: Array<{ url?: string; width?: number }> };
+}
+
+async function handleNews(ticker: string): Promise<unknown> {
+  const symbol = toNS(ticker);
+  return withCache(`news:${symbol}`, 15 * 60_000, async () => {
+    const url = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(symbol)}&lang=en-US&region=IN&quotesCount=0&newsCount=6&listsCount=0`;
+    const raw = await yfFetch(url) as { news?: YahooNewsItem[] };
+    const news = (raw?.news ?? []).map((item) => ({
+      uuid: item.uuid ?? "",
+      title: item.title ?? "",
+      link: item.link ?? "",
+      publisher: item.publisher ?? "",
+      publishedAt: item.providerPublishTime
+        ? new Date(item.providerPublishTime * 1000).toISOString()
+        : null,
+      thumbnail: item.thumbnail?.resolutions?.find((r) => (r.width ?? 0) >= 80)?.url ?? null,
+    }));
+    return { news, symbol };
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Router
 // ---------------------------------------------------------------------------
 function json(data: unknown, status = 200): Response {
@@ -222,6 +249,9 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
     if (historyMatch) return json(await handleHistory(decodeURIComponent(historyMatch[1]), url.searchParams.get("period") ?? "1mo"));
 
     if (path === "/api/yahoo/search") return json(await handleSearch(url.searchParams.get("q") ?? ""));
+
+    const newsMatch = path.match(/^\/api\/yahoo\/news\/(.+)$/);
+    if (newsMatch) return json(await handleNews(decodeURIComponent(newsMatch[1])));
 
     return json({ error: "Not found" }, 404);
   } catch (err) {
