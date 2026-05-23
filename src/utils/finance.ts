@@ -1,15 +1,14 @@
 /**
- * NSE EQUITY DELIVERY — standard sell-side charges (approx, INR).
- * Rates updated for FY24+. Buy-side is similar except STT applies to BOTH sides
- * for delivery, but we only auto-compute on SELL since user asked for sell charges.
+ * Angel One — NSE EQUITY DELIVERY charges (INR).
  *
- * brokerage      → most discount brokers charge ₹0 on delivery; default 0, editable
- * stt            → 0.1% of sell turnover (delivery)
- * exchTxn        → NSE 0.00297%  (BSE 0.00375%)
- * sebi           → 0.0001%
- * stampDuty      → buy-side only (0.015%); zero on sell
- * gst            → 18% on (brokerage + exchTxn + sebi)
- * dpCharges      → ~₹15.93 flat per sell scrip (CDSL/NSDL + broker), editable
+ * brokerage  → min(₹20, 0.1% × order value) per executed order, BOTH buy & sell
+ * stt        → 0.1% on BOTH buy & sell turnover (delivery)
+ * exchTxn    → NSE 0.00297% on total turnover
+ * sebi       → 0.0001% on total turnover (₹10 per crore)
+ * ipft       → NSE 0.0001% on total turnover
+ * stampDuty  → 0.015% on BUY side only
+ * gst        → 18% on (brokerage + exchTxn + sebi + ipft)
+ * dpCharges  → ~₹15.93 flat per sell scrip (CDSL/NSDL + broker), editable
  */
 export interface SellChargesBreakdown {
   brokerage: number;
@@ -17,6 +16,8 @@ export interface SellChargesBreakdown {
   exchTxn: number;
   sebi: number;
   gst: number;
+  stampDuty: number;
+  ipft: number;
   dpCharges: number;
   total: number;
 }
@@ -33,24 +34,82 @@ export const DEFAULT_SELL_RATES: Required<SellChargeRates> = {
   dpCharges: 15.93,
 };
 
+/** Angel One per-order brokerage cap (delivery): lower of ₹20 or 0.1% of order value. */
+function angelBrokerage(orderValue: number) {
+  return Math.min(20, orderValue * 0.001);
+}
+
 export function computeSellCharges(
   sellValue: number,
   rates: SellChargeRates = {}
 ): SellChargesBreakdown {
-  const brokerage = rates.brokerage ?? DEFAULT_SELL_RATES.brokerage;
+  // Sell-only estimate (used at sell-time when buy value not handy).
+  // Angel One brokerage on the sell leg only.
+  const brokerage =
+    rates.brokerage !== undefined ? rates.brokerage : angelBrokerage(sellValue);
   const dpCharges = rates.dpCharges ?? DEFAULT_SELL_RATES.dpCharges;
-  const stt = sellValue * 0.001; // 0.1%
-  const exchTxn = sellValue * 0.0000297; // 0.00297%
-  const sebi = sellValue * 0.000001; // 0.0001%
-  const gst = (brokerage + exchTxn + sebi) * 0.18;
-  const total = brokerage + stt + exchTxn + sebi + gst + dpCharges;
+  const stt = sellValue * 0.001; // 0.1% sell leg
+  const exchTxn = sellValue * 0.0000297;
+  const sebi = sellValue * 0.000001;
+  const ipft = sellValue * 0.000001;
+  const stampDuty = 0; // buy-side only
+  const gst = (brokerage + exchTxn + sebi + ipft) * 0.18;
+  const total =
+    brokerage + stt + exchTxn + sebi + ipft + stampDuty + gst + dpCharges;
   return {
     brokerage,
     stt: round2(stt),
     exchTxn: round2(exchTxn),
     sebi: round2(sebi),
     gst: round2(gst),
+    stampDuty: round2(stampDuty),
+    ipft: round2(ipft),
     dpCharges,
+    total: round2(total),
+  };
+}
+
+/**
+ * Full Angel One charges across a complete BUY + SELL delivery trade
+ * (matches the "Charges Breakup" view shown in the Angel One app).
+ */
+export interface FullChargesBreakdown {
+  brokerage: number;
+  stt: number;
+  exchTxn: number;
+  gst: number;
+  sebi: number;
+  stampDuty: number;
+  ipft: number;
+  dpCharges: number;
+  total: number;
+}
+
+export function computeAngelCharges(
+  buyValue: number,
+  sellValue: number,
+  opts: { dpCharges?: number } = {}
+): FullChargesBreakdown {
+  const turnover = buyValue + sellValue;
+  const brokerage = angelBrokerage(buyValue) + angelBrokerage(sellValue);
+  const stt = turnover * 0.001; // both legs, delivery
+  const exchTxn = turnover * 0.0000297; // NSE
+  const sebi = turnover * 0.000001;
+  const ipft = turnover * 0.000001;
+  const stampDuty = buyValue * 0.00015; // 0.015% buy side
+  const gst = (brokerage + exchTxn + sebi + ipft) * 0.18;
+  const dpCharges = opts.dpCharges ?? 0; // shown separately in Angel breakup
+  const total =
+    brokerage + stt + exchTxn + sebi + ipft + stampDuty + gst + dpCharges;
+  return {
+    brokerage: round2(brokerage),
+    stt: round2(stt),
+    exchTxn: round2(exchTxn),
+    gst: round2(gst),
+    sebi: round2(sebi),
+    stampDuty: round2(stampDuty),
+    ipft: round2(ipft),
+    dpCharges: round2(dpCharges),
     total: round2(total),
   };
 }
