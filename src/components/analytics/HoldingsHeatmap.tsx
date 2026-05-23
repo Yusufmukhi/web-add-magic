@@ -21,7 +21,7 @@ export function HoldingsHeatmap({ portfolio, results }: Props) {
   const cells = useMemo(() => {
     const quoteMap = new Map(
       results
-        .filter((r) => r.status === "success" && r.data)
+        .filter((r) => !!r.data && !r.error)
         .map((r) => [r.data!.ticker, r.data!])
     );
 
