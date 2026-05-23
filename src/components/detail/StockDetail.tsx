@@ -17,6 +17,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatCard } from "./StatCard";
+import { StockNotesPanel } from "./StockNotesPanel";
+import { StockNewsPanel } from "./StockNewsPanel";
 
 interface Props {
   ticker: string | null;
@@ -149,6 +151,10 @@ export function StockDetail({ ticker, data, isLoading, onClose }: Props) {
           <StatCard label="Institutional" value={formatPct(data.heldPercentInstitutions, 2, 100)} />
         </div>
       </div>
+
+      <StockNotesPanel ticker={ticker} />
+
+      <StockNewsPanel ticker={ticker} />
 
       <div className="flex flex-wrap gap-2">
         <a
