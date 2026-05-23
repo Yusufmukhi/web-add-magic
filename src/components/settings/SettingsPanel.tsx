@@ -6,6 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Separator } from "@/components/ui/separator";
 import { ConfirmDialog } from "@/components/modals/ConfirmDialog";
 import type { Holding, Transaction } from "@/types/portfolio.types";
+import { SoldStocksPanel } from "@/components/sold/SoldStocksPanel";
 
 export interface BackupShape {
   version: 1;
@@ -118,6 +119,19 @@ export function SettingsPanel({
               if (f) handleImportFile(f);
             }}
           />
+        </CardContent>
+      </Card>
+
+      {/* Sold stocks history */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="font-display">Sold Stocks</CardTitle>
+          <CardDescription>
+            Full history of every sell with realized P&amp;L, charges, holding period and tax type. Export to CSV or Excel.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <SoldStocksPanel transactions={transactions} />
         </CardContent>
       </Card>
 
