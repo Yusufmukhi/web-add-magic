@@ -8,6 +8,7 @@ import { PortfolioActions } from "./PortfolioActions";
 import { PortfolioValueChart } from "./PortfolioValueChart";
 import { downloadExcel, parseHoldingsExcel, toSerial, S, n, t, empty, NCOLS } from "@/utils/excel";
 import type { CellDef } from "@/utils/excel";
+import { xirr } from "@/utils/finance";
 import { toast } from "sonner";
 
 interface Props {
@@ -67,14 +68,26 @@ export function PortfolioPanel({
   }, [portfolio, transactions, prices, quotes]);
 
   const { cagr, cagrYears } = useMemo(() => {
-    if (invested <= 0 || current <= 0) return { cagr: null, cagrYears: null };
-    const buyDates = transactions.filter((tx) => tx.action === "BUY" && tx.date).map((tx) => Date.parse(tx.date)).filter((nn) => !isNaN(nn));
-    if (!buyDates.length) return { cagr: null, cagrYears: null };
-    const years = (Date.now() - Math.min(...buyDates)) / (365.25 * 86400000);
+    // Money-weighted CAGR (XIRR): BUYs = outflow, SELLs (net) = inflow,
+    // open holdings' current MV = terminal inflow. Works even if fully sold.
+    const flows: number[] = [];
+    const dates: string[] = [];
+    const sorted = [...transactions]
+      .filter((tx) => (tx.action === "BUY" || tx.action === "SELL") && tx.date)
+      .sort((a, b) => Date.parse(a.date) - Date.parse(b.date));
+    sorted.forEach((tx) => {
+      if (tx.action === "BUY") { flows.push(-tx.amount); dates.push(tx.date); }
+      else if (tx.action === "SELL") { flows.push(tx.amount); dates.push(tx.date); }
+    });
+    const today = new Date().toISOString().slice(0, 10);
+    if (current > 0) { flows.push(current); dates.push(today); }
+    if (flows.length < 2) return { cagr: null, cagrYears: null };
+    const firstDate = dates[0];
+    const years = (Date.parse(today) - Date.parse(firstDate)) / (365.25 * 86400000);
     if (years <= 0.0274) return { cagr: null, cagrYears: null };
-    const c = (Math.pow(current / invested, 1 / years) - 1) * 100;
-    return { cagr: isFinite(c) ? c : null, cagrYears: years };
-  }, [invested, current, transactions]);
+    const r = xirr(flows, dates);
+    return { cagr: r != null && isFinite(r) ? r * 100 : null, cagrYears: years };
+  }, [transactions, current]);
 
   const allocByStock = rows.map((r) => ({ name: r.ticker, value: r.value }));
   const allocBySector = Object.values(rows.reduce<Record<string, { name: string; value: number }>>((acc, r) => {
