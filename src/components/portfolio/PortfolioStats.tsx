@@ -1,3 +1,4 @@
+
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useStockQuotes } from "@/hooks/useStockQuote";
 import type { Holding, HoldingRow, Transaction } from "@/types/portfolio.types";
