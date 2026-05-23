@@ -350,7 +350,7 @@ export function downloadExcel(rows: RowSpec[], colWidths: number[], filename: st
     { name: "xl/sharedStrings.xml", content: ssXml },
     { name: "xl/styles.xml", content: STYLES_XML },
   ];
-  const blob = new Blob([buildZip(files)], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const blob = new Blob([buildZip(files) as BlobPart], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url; a.download = filename; a.click();
