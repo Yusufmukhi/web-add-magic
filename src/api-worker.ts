@@ -9,6 +9,7 @@
  *   GET /api/yahoo/quote/:ticker     — full quote + fundamentals
  *   GET /api/yahoo/history/:ticker   — OHLCV history (?period=1mo etc.)
  *   GET /api/yahoo/search?q=...      — ticker search (NSE equity only)
+ *   GET /api/yahoo/news/:ticker      — stock news (Google News RSS)
  *   GET /api/                        — health-check
  */
 
@@ -75,7 +76,11 @@ async function withCache<T>(
 }
 
 // ---------------------------------------------------------------------------
-// Yahoo Finance helpers
+// Yahoo Finance — Cookie + Crumb auth
+//
+// Yahoo Finance requires a session cookie and a "crumb" token for most API
+// endpoints. We fetch these once per isolate lifetime and reuse them.
+// On a 401 we reset and retry once (crumb can expire mid-session).
 // ---------------------------------------------------------------------------
 
 const YF_HEADERS = {
@@ -87,11 +92,102 @@ const YF_HEADERS = {
   Referer: "https://finance.yahoo.com/",
 };
 
-async function yfFetch(url: string): Promise<unknown> {
-  const res = await fetch(url, { headers: YF_HEADERS });
+let _yfCookie: string | null = null;
+let _yfCrumb: string | null = null;
+let _yfCrumbFetching: Promise<void> | null = null;
+
+async function ensureCrumb(): Promise<void> {
+  if (_yfCookie && _yfCrumb) return;
+  if (_yfCrumbFetching) return _yfCrumbFetching;
+
+  _yfCrumbFetching = (async () => {
+    try {
+      // Step 1: Hit Yahoo Finance to get a session cookie
+      const cookieRes = await fetch("https://fc.yahoo.com", {
+        headers: { "User-Agent": YF_HEADERS["User-Agent"] },
+        redirect: "follow",
+      });
+      const setCookie = cookieRes.headers.get("set-cookie") ?? "";
+      // Extract just the key=value part (before first semicolon)
+      _yfCookie = setCookie.split(";")[0].trim() || null;
+
+      if (!_yfCookie) {
+        // Fallback: try the finance page directly
+        const fallback = await fetch("https://finance.yahoo.com", {
+          headers: { "User-Agent": YF_HEADERS["User-Agent"] },
+          redirect: "follow",
+        });
+        const fb = fallback.headers.get("set-cookie") ?? "";
+        _yfCookie = fb.split(";")[0].trim() || "A=dummy";
+      }
+
+      // Step 2: Exchange cookie for a crumb token
+      const crumbRes = await fetch(
+        "https://query1.finance.yahoo.com/v1/test/getcrumb",
+        {
+          headers: {
+            ...YF_HEADERS,
+            Cookie: _yfCookie ?? "",
+          },
+        }
+      );
+
+      if (crumbRes.ok) {
+        const text = await crumbRes.text();
+        // Crumb is a plain string (not JSON), ~11 chars, may contain backslash-encoded chars
+        _yfCrumb = text.trim();
+      } else {
+        console.warn(`[crumb] getcrumb returned HTTP ${crumbRes.status}`);
+        _yfCrumb = null;
+      }
+    } catch (err) {
+      console.error("[crumb] failed to obtain crumb:", (err as Error).message);
+      _yfCookie = null;
+      _yfCrumb = null;
+    }
+  })();
+
+  await _yfCrumbFetching;
+  _yfCrumbFetching = null;
+}
+
+function resetCrumb(): void {
+  _yfCookie = null;
+  _yfCrumb = null;
+  _yfCrumbFetching = null;
+}
+
+/**
+ * Fetch a Yahoo Finance URL, automatically attaching the session cookie and
+ * crumb. Retries once if we get a 401 (stale crumb).
+ */
+async function yfFetch(url: string, isRetry = false): Promise<unknown> {
+  await ensureCrumb();
+
+  // Append crumb to query string if we have one
+  const fullUrl =
+    _yfCrumb
+      ? `${url}${url.includes("?") ? "&" : "?"}crumb=${encodeURIComponent(_yfCrumb)}`
+      : url;
+
+  const res = await fetch(fullUrl, {
+    headers: {
+      ...YF_HEADERS,
+      ..._yfCookie ? { Cookie: _yfCookie } : {},
+    },
+  });
+
+  if (res.status === 401 && !isRetry) {
+    // Crumb expired — reset and retry exactly once
+    console.warn("[yfFetch] 401, refreshing crumb and retrying…");
+    resetCrumb();
+    return yfFetch(url, true);
+  }
+
   if (!res.ok) {
     throw new Error(`Yahoo Finance returned HTTP ${res.status} for ${url}`);
   }
+
   return res.json();
 }
 
@@ -167,7 +263,10 @@ async function handleHistory(
       chart?: {
         result?: Array<{
           timestamp?: number[];
-          indicators?: { adjclose?: Array<{ adjclose?: number[] }>; quote?: Array<{ close?: number[] }> };
+          indicators?: {
+            adjclose?: Array<{ adjclose?: number[] }>;
+            quote?: Array<{ close?: number[] }>;
+          };
         }>;
         error?: unknown;
       };
@@ -210,12 +309,10 @@ async function handleSearch(query: string): Promise<unknown> {
   const q = query.trim().toUpperCase();
   if (!q) return { quotes: [] };
 
-  // Try direct ticker lookup first (most common case for NSE symbols)
   const symbol = toNS(q);
   const key = `search:${symbol}`;
 
   return withCache(key, 5 * 60_000, async () => {
-    // Yahoo autocomplete API
     const url = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(q)}&lang=en-US&region=IN&quotesCount=10&newsCount=0&listsCount=0&enableFuzzyQuery=false&enableCb=false&enableNavLinks=false&enableEnhancedTrivialQuery=true&corsDomain=finance.yahoo.com`;
 
     const raw = (await yfFetch(url)) as {
@@ -229,7 +326,12 @@ async function handleSearch(query: string): Promise<unknown> {
     };
 
     const quotes = (raw?.quotes ?? [])
-      .filter((q) => q.exchange === "NSI" && q.quoteType === "EQUITY")
+      // FIX: Yahoo returns "NSI" on some endpoints and "NSE" on others — accept both
+      .filter(
+        (q) =>
+          (q.exchange === "NSI" || q.exchange === "NSE") &&
+          q.quoteType === "EQUITY"
+      )
       .map((q) => ({
         symbol: q.symbol,
         exchange: q.exchange,
@@ -244,6 +346,8 @@ async function handleSearch(query: string): Promise<unknown> {
 
 // ---------------------------------------------------------------------------
 // News endpoint  →  /api/yahoo/news/:ticker
+//
+// Uses Google News RSS — no auth required, returns India-specific results.
 // ---------------------------------------------------------------------------
 
 async function handleNews(ticker: string): Promise<unknown> {
@@ -251,35 +355,64 @@ async function handleNews(ticker: string): Promise<unknown> {
   const key = `news:${symbol}`;
 
   return withCache(key, 15 * 60_000, async () => {
-    const url = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(symbol)}&lang=en-US&region=IN&quotesCount=0&newsCount=10&listsCount=0&corsDomain=finance.yahoo.com`;
-    const raw = (await yfFetch(url)) as {
-      news?: Array<{
-        uuid?: string;
-        title?: string;
-        link?: string;
-        publisher?: string;
-        providerPublishTime?: number;
-        thumbnail?: { resolutions?: Array<{ url?: string; tag?: string }> };
-      }>;
+    // Strip .NS suffix and index prefix for a clean search query
+    const bare = ticker.replace(/\.NS$/i, "").replace(/^\^/, "");
+    const query = `${bare} NSE stock`;
+    const rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=en-IN&gl=IN&ceid=IN:en`;
+
+    const res = await fetch(rssUrl, {
+      headers: { "User-Agent": YF_HEADERS["User-Agent"] },
+    });
+    if (!res.ok) throw new Error(`Google News returned HTTP ${res.status}`);
+
+    const xml = await res.text();
+
+    const items: Array<{
+      uuid: string;
+      title: string;
+      link: string;
+      publisher: string;
+      publishedAt: string | null;
+      thumbnail: null;
+    }> = [];
+
+    const itemRegex = /<item>([\s\S]*?)<\/item>/g;
+    const getTag = (block: string, tag: string): string => {
+      const m = block.match(new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`));
+      if (!m) return "";
+      return m[1].replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1").trim();
     };
 
-    const news = (raw?.news ?? []).map((n, i) => {
-      const thumbs = n.thumbnail?.resolutions ?? [];
-      const thumb =
-        thumbs.find((t) => t.tag === "140x140")?.url ?? thumbs[0]?.url ?? null;
-      return {
-        uuid: n.uuid ?? `${symbol}-${i}`,
-        title: n.title ?? "",
-        link: n.link ?? "#",
-        publisher: n.publisher ?? "",
-        publishedAt: n.providerPublishTime
-          ? new Date(n.providerPublishTime * 1000).toISOString()
-          : null,
-        thumbnail: thumb,
-      };
-    });
+    let match: RegExpExecArray | null;
+    let i = 0;
+    while ((match = itemRegex.exec(xml)) !== null && items.length < 15) {
+      const block = match[1];
+      const rawTitle = getTag(block, "title");
+      const link = getTag(block, "link");
+      const pubDate = getTag(block, "pubDate");
+      const source = getTag(block, "source");
 
-    return { news };
+      // Google News titles look like "Headline - Publisher". Split it.
+      let title = rawTitle;
+      let publisher = source;
+      const dashIdx = rawTitle.lastIndexOf(" - ");
+      if (dashIdx > 0) {
+        title = rawTitle.slice(0, dashIdx).trim();
+        if (!publisher) publisher = rawTitle.slice(dashIdx + 3).trim();
+      }
+
+      const pubIso = pubDate ? new Date(pubDate).toISOString() : null;
+      items.push({
+        uuid: `${symbol}-${i++}`,
+        title,
+        link,
+        publisher,
+        publishedAt: pubIso && pubIso !== "Invalid Date" ? pubIso : null,
+        thumbnail: null,
+      });
+    }
+
+    return { news: items };
   });
 }
 
