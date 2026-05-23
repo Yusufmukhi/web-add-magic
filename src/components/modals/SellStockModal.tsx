@@ -141,11 +141,13 @@ export function SellStockModal({ open, onClose, portfolio, prices, prefillTicker
                 </div>
               </div>
               <ul className="space-y-0.5 text-xs font-mono text-muted-foreground">
-                <li className="flex justify-between"><span>Brokerage</span><span>{formatINR(charges.brokerage)}</span></li>
-                <li className="flex justify-between"><span>STT (0.10%)</span><span>{formatINR(charges.stt)}</span></li>
-                <li className="flex justify-between"><span>Exchange txn</span><span>{formatINR(charges.exchTxn)}</span></li>
-                <li className="flex justify-between"><span>SEBI</span><span>{formatINR(charges.sebi)}</span></li>
+                <li className="flex justify-between"><span>Angel One Brokerage</span><span>{formatINR(charges.brokerage)}</span></li>
+                <li className="flex justify-between"><span>Security Transaction Tax</span><span>{formatINR(charges.stt)}</span></li>
+                <li className="flex justify-between"><span>Exchange Transaction Charges</span><span>{formatINR(charges.exchTxn)}</span></li>
                 <li className="flex justify-between"><span>GST (18%)</span><span>{formatINR(charges.gst)}</span></li>
+                <li className="flex justify-between"><span>SEBI Fees</span><span>{formatINR(charges.sebi)}</span></li>
+                <li className="flex justify-between"><span>Stamp Duty</span><span>{formatINR(charges.stampDuty)}</span></li>
+                <li className="flex justify-between"><span>IPFT Charges</span><span>{formatINR(charges.ipft)}</span></li>
                 <li className="flex justify-between"><span>DP charges</span><span>{formatINR(charges.dpCharges)}</span></li>
                 <li className="flex justify-between border-t border-border pt-1 font-semibold text-foreground">
                   <span>Total charges</span><span>{formatINR(charges.total)}</span>
