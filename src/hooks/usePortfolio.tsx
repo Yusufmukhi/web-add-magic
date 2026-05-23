@@ -1,73 +1,222 @@
-import { useState } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
-import { formatINR } from "@/utils/formatters";
+import { useCallback } from "react";
+import type { Holding, Transaction } from "@/types/portfolio.types";
+import { useLocalStorage } from "./useLocalStorage";
 
-interface Props {
-  open: boolean;
-  onClose: () => void;
-  cashBalance: number;
-  onConfirm: (amount: number, note?: string) => boolean;
-}
+const todayStr = () => new Date().toISOString().slice(0, 10);
+const newId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
-export function WithdrawModal({ open, onClose, cashBalance, onConfirm }: Props) {
-  const [amount, setAmount] = useState("");
-  const [note, setNote] = useState("");
-  const [err, setErr] = useState<string | null>(null);
-  const handle = () => {
-    const n = parseFloat(amount);
-    if (!n || n <= 0) return setErr("Enter a valid amount");
-    if (n > cashBalance) return setErr("Insufficient balance");
-    onConfirm(n, note);
-    setAmount("");
-    setNote("");
-    setErr(null);
-    onClose();
-  };
-  return (
-    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-[95vw] sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle className="font-display">🏧 Withdraw Funds</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-3 py-2">
-          <p className="text-sm text-muted-foreground">
-            Available: <span className="font-mono font-semibold">{formatINR(cashBalance)}</span>
-          </p>
-          <div className="space-y-1.5">
-            <Label htmlFor="wd-amt">Amount (₹)</Label>
-            <Input
-              id="wd-amt"
-              type="number"
-              min="0"
-              step="0.01"
-              value={amount}
-              onChange={(e) => { setAmount(e.target.value); setErr(null); }}
-              placeholder="10000"
-              autoFocus
-            />
-            {err && <p className="text-xs text-loss">{err}</p>}
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="wd-note">Description <span className="text-muted-foreground">(optional)</span></Label>
-            <Textarea
-              id="wd-note"
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              placeholder="e.g. Rent payment, transferred to savings…"
-              rows={2}
-              maxLength={200}
-            />
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="ghost" onClick={onClose}>Cancel</Button>
-          <Button variant="destructive" onClick={handle}>Withdraw</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+export function usePortfolioState() {
+  const [portfolio, setPortfolio] = useLocalStorage<Holding[]>("portfolio", []);
+  const [transactions, setTransactions] = useLocalStorage<Transaction[]>(
+    "transactions",
+    []
   );
+  const [cashBalance, setCashBalance] = useLocalStorage<number>("cash_balance", 0);
+
+  const addFunds = useCallback(
+    (amount: number, note?: string) => {
+      setCashBalance((c) => c + amount);
+      setTransactions((prev) => [
+        {
+          id: newId(),
+          date: todayStr(),
+          action: "DEPOSIT",
+          amount,
+          cashAfter: 0,
+          meta: { type: "Fund Deposit", note: note?.trim() || undefined },
+        },
+        ...prev,
+      ]);
+    },
+    [setCashBalance, setTransactions]
+  );
+
+  const withdrawFunds = useCallback(
+    (amount: number, note?: string): boolean => {
+      let ok = false;
+      setCashBalance((c) => {
+        if (amount > c) return c;
+        ok = true;
+        return c - amount;
+      });
+      if (ok) {
+        setTransactions((prev) => [
+          {
+            id: newId(),
+            date: todayStr(),
+            action: "WITHDRAW",
+            amount,
+            cashAfter: 0,
+            meta: { type: "Withdrawal", note: note?.trim() || undefined },
+          },
+          ...prev,
+        ]);
+      }
+      return ok;
+    },
+    [setCashBalance, setTransactions]
+  );
+
+  const buy = useCallback(
+    (ticker: string, price: number, qty: number, buyDate: string): boolean => {
+      const total = price * qty;
+      if (total > cashBalance) return false;
+      setCashBalance((c) => c - total);
+      let newAvg = price;
+      setPortfolio((prev) => {
+        const existing = prev.find((h) => h.ticker === ticker);
+        if (existing) {
+          const nq = existing.qty + qty;
+          const na = (existing.avgPrice * existing.qty + price * qty) / nq;
+          newAvg = na;
+          return prev.map((h) =>
+            h.ticker === ticker
+              ? { ...h, qty: nq, avgPrice: na, buyDate: h.buyDate || buyDate }
+              : h
+          );
+        }
+        return [...prev, { ticker, qty, avgPrice: price, buyDate }];
+      });
+      setTransactions((prev) => [
+        {
+          id: newId(),
+          date: buyDate,
+          action: "BUY",
+          stock: ticker,
+          qty,
+          price,
+          amount: total,
+          cashAfter: 0,
+          meta: { type: "Market Buy", avgCost: newAvg, buyDate },
+        },
+        ...prev,
+      ]);
+      return true;
+    },
+    [cashBalance, setCashBalance, setPortfolio, setTransactions]
+  );
+
+  const sell = useCallback(
+    (
+      ticker: string,
+      price: number,
+      qty: number,
+      sellDate: string,
+      charges: number = 0
+    ): boolean => {
+      const h = portfolio.find((p) => p.ticker === ticker);
+      if (!h || qty > h.qty) return false;
+      const gross = price * qty;
+      const ch = Math.max(0, charges);
+      const netProceeds = gross - ch;
+      const profit = (price - h.avgPrice) * qty - ch;
+      const profitPct = h.avgPrice > 0 ? (profit / (h.avgPrice * qty)) * 100 : 0;
+      const buyDateStr = h.buyDate || sellDate;
+      const holdingDays = Math.max(
+        0,
+        Math.floor((Date.parse(sellDate) - Date.parse(buyDateStr)) / 86400000)
+      );
+      setCashBalance((c) => c + netProceeds);
+      setPortfolio((prev) =>
+        prev
+          .map((p) => (p.ticker === ticker ? { ...p, qty: p.qty - qty } : p))
+          .filter((p) => p.qty > 0)
+      );
+      setTransactions((prev) => [
+        {
+          id: newId(),
+          date: sellDate,
+          action: "SELL",
+          stock: ticker,
+          qty,
+          price,
+          amount: netProceeds,
+          cashAfter: 0,
+          meta: {
+            profit,
+            profitPct,
+            holdingDays,
+            type: holdingDays >= 365 ? "LTCG" : "STCG",
+            avgCost: h.avgPrice,
+            buyDate: buyDateStr,
+            sellDate,
+            charges: ch,
+            grossAmount: gross,
+          },
+        },
+        ...prev,
+      ]);
+      return true;
+    },
+    [portfolio, setCashBalance, setPortfolio, setTransactions]
+  );
+
+  /** Edit a holding's qty / avg buy price / first buy date. Does NOT touch cash or transactions. */
+  const editHolding = useCallback(
+    (
+      ticker: string,
+      patch: { qty?: number; avgPrice?: number; buyDate?: string }
+    ): boolean => {
+      let ok = false;
+      setPortfolio((prev) =>
+        prev.map((h) => {
+          if (h.ticker !== ticker) return h;
+          const next: Holding = {
+            ...h,
+            qty: patch.qty != null && patch.qty > 0 ? patch.qty : h.qty,
+            avgPrice:
+              patch.avgPrice != null && patch.avgPrice > 0 ? patch.avgPrice : h.avgPrice,
+            buyDate: patch.buyDate || h.buyDate,
+          };
+          ok = true;
+          return next;
+        })
+      );
+      return ok;
+    },
+    [setPortfolio]
+  );
+
+  /** Delete a single holding entirely. Does NOT refund cash. */
+  const deleteHolding = useCallback(
+    (ticker: string) => {
+      setPortfolio((prev) => prev.filter((h) => h.ticker !== ticker));
+    },
+    [setPortfolio]
+  );
+
+  /** Wipe portfolio + transactions + cash. */
+  const resetPortfolio = useCallback(() => {
+    setPortfolio([]);
+    setTransactions([]);
+    setCashBalance(0);
+  }, [setPortfolio, setTransactions, setCashBalance]);
+
+  /** Replace full state (used by Import backup). */
+  const replaceState = useCallback(
+    (state: {
+      portfolio: Holding[];
+      transactions: Transaction[];
+      cashBalance: number;
+    }) => {
+      setPortfolio(Array.isArray(state.portfolio) ? state.portfolio : []);
+      setTransactions(Array.isArray(state.transactions) ? state.transactions : []);
+      setCashBalance(typeof state.cashBalance === "number" ? state.cashBalance : 0);
+    },
+    [setPortfolio, setTransactions, setCashBalance]
+  );
+
+  return {
+    portfolio,
+    transactions,
+    cashBalance,
+    addFunds,
+    withdrawFunds,
+    buy,
+    sell,
+    editHolding,
+    deleteHolding,
+    resetPortfolio,
+    replaceState,
+  };
 }
