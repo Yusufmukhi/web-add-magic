@@ -34,11 +34,11 @@ export function TransactionsTable({ transactions }: Props) {
   const exportCSV = () => {
     downloadCSV(
       [
-        ["Date", "Action", "Stock", "Qty", "Price", "Amount", "Profit", "P/L %", "Holding Days", "Type"],
+        ["Date", "Action", "Stock", "Qty", "Price", "Amount", "Charges", "Profit", "P/L %", "Holding Days", "Type", "Note"],
         ...rows.map((t) => [
           t.date, t.action, t.stock ?? "", t.qty ?? "", t.price ?? "",
-          t.amount, t.meta?.profit ?? "", t.meta?.profitPct ?? "",
-          t.meta?.holdingDays ?? "", t.meta?.type ?? "",
+          t.amount, t.meta?.charges ?? "", t.meta?.profit ?? "", t.meta?.profitPct ?? "",
+          t.meta?.holdingDays ?? "", t.meta?.type ?? "", t.meta?.note ?? "",
         ]),
       ],
       `transactions-${new Date().toISOString().slice(0, 10)}.csv`
@@ -50,9 +50,9 @@ export function TransactionsTable({ transactions }: Props) {
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
         <Select value={filter} onValueChange={(v) => setFilter(v as Filter)}>
-          <SelectTrigger className="w-36 minimal:rounded-none"><SelectValue /></SelectTrigger>
+          <SelectTrigger className="w-full sm:w-36 minimal:rounded-none"><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="ALL">All</SelectItem>
             <SelectItem value="BUY">Buy</SelectItem>
@@ -66,12 +66,12 @@ export function TransactionsTable({ transactions }: Props) {
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Search ticker"
-            className="h-9 w-40 pl-8 font-mono minimal:rounded-none"
+            className="h-9 w-full pl-8 font-mono sm:w-40 minimal:rounded-none"
           />
         </div>
-        <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="h-9 w-36 minimal:rounded-none" />
-        <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="h-9 w-36 minimal:rounded-none" />
-        <Button variant="outline" size="sm" onClick={exportCSV} className="ml-auto gap-2 minimal:rounded-none">
+        <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="h-9 w-full sm:w-36 minimal:rounded-none" />
+        <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="h-9 w-full sm:w-36 minimal:rounded-none" />
+        <Button variant="outline" size="sm" onClick={exportCSV} className="col-span-2 gap-2 sm:ml-auto minimal:rounded-none">
           <Download className="h-3.5 w-3.5" /> CSV
         </Button>
       </div>
@@ -98,10 +98,24 @@ export function TransactionsTable({ transactions }: Props) {
               <tr key={t.id} className="border-b border-border hover:bg-accent/30">
                 <td className="px-3 py-2 font-mono text-xs text-muted-foreground">{t.date}</td>
                 <td className={`px-3 py-2 font-semibold ${actionColor(t.action)}`}>{t.action}</td>
-                <td className="px-3 py-2 font-mono">{t.stock ?? "—"}</td>
+                <td className="px-3 py-2 font-mono">
+                  <div>{t.stock ?? "—"}</div>
+                  {t.meta?.note && (
+                    <div className="mt-0.5 max-w-[200px] truncate font-sans text-[11px] font-normal italic text-muted-foreground" title={t.meta.note}>
+                      {t.meta.note}
+                    </div>
+                  )}
+                </td>
                 <td className="px-3 py-2 text-right font-mono">{t.qty ?? "—"}</td>
                 <td className="px-3 py-2 text-right font-mono">{t.price ? formatINR(t.price) : "—"}</td>
-                <td className="px-3 py-2 text-right font-mono">{formatINR(t.amount)}</td>
+                <td className="px-3 py-2 text-right font-mono">
+                  <div>{formatINR(t.amount)}</div>
+                  {t.meta?.charges != null && t.meta.charges > 0 && (
+                    <div className="mt-0.5 text-[10px] text-muted-foreground">
+                      chg −{formatINR(t.meta.charges)}
+                    </div>
+                  )}
+                </td>
                 <td className={`hidden px-3 py-2 text-right font-mono md:table-cell ${t.meta?.profit != null ? (t.meta.profit >= 0 ? "text-gain" : "text-loss") : "text-muted-foreground"}`}>
                   {t.meta?.profit != null ? `${t.meta.profit >= 0 ? "+" : ""}${formatNumber(t.meta.profit, 2)}` : "—"}
                 </td>
