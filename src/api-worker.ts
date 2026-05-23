@@ -251,35 +251,59 @@ async function handleNews(ticker: string): Promise<unknown> {
   const key = `news:${symbol}`;
 
   return withCache(key, 15 * 60_000, async () => {
-    const url = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(symbol)}&lang=en-US&region=IN&quotesCount=0&newsCount=10&listsCount=0&corsDomain=finance.yahoo.com`;
-    const raw = (await yfFetch(url)) as {
-      news?: Array<{
-        uuid?: string;
-        title?: string;
-        link?: string;
-        publisher?: string;
-        providerPublishTime?: number;
-        thumbnail?: { resolutions?: Array<{ url?: string; tag?: string }> };
-      }>;
+     // Google News RSS — free, no auth, returns ticker-relevant Indian market news.
+    // Query the bare ticker + "NSE" so we get India-specific results.
+    const bare = ticker.replace(/\.NS$/i, "").replace(/^\^/, "");
+    const query = `${bare} NSE stock`;
+    const rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=en-IN&gl=IN&ceid=IN:en`;
+    const res = await fetch(rssUrl, {
+      headers: { "User-Agent": YF_HEADERS["User-Agent"] },
+    });
+    if (!res.ok) throw new Error(`Google News returned HTTP ${res.status}`);
+    const xml = await res.text();
+    // Minimal RSS parser — extract <item> blocks
+    const items: Array<{
+      uuid: string;
+      title: string;
+      link: string;
+      publisher: string;
+      publishedAt: string | null;
+      thumbnail: null;
+    }> = [];
+    const itemRegex = /<item>([\s\S]*?)<\/item>/g;
+    const get = (block: string, tag: string): string => {
+      const m = block.match(new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`));
+      if (!m) return "";
+      return m[1].replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1").trim();
     };
 
-    const news = (raw?.news ?? []).map((n, i) => {
-      const thumbs = n.thumbnail?.resolutions ?? [];
-      const thumb =
-        thumbs.find((t) => t.tag === "140x140")?.url ?? thumbs[0]?.url ?? null;
-      return {
-        uuid: n.uuid ?? `${symbol}-${i}`,
-        title: n.title ?? "",
-        link: n.link ?? "#",
-        publisher: n.publisher ?? "",
-        publishedAt: n.providerPublishTime
-          ? new Date(n.providerPublishTime * 1000).toISOString()
-          : null,
-        thumbnail: thumb,
-      };
-    });
-
-    return { news };
+ let match: RegExpExecArray | null;
+    let i = 0;
+    while ((match = itemRegex.exec(xml)) !== null && items.length < 15) {
+      const block = match[1];
+      const rawTitle = get(block, "title");
+      const link = get(block, "link");
+      const pubDate = get(block, "pubDate");
+      const source = get(block, "source");
+      // Google News titles look like "Headline - Publisher". Split it.
+      let title = rawTitle;
+      let publisher = source;
+      const dashIdx = rawTitle.lastIndexOf(" - ");
+      if (dashIdx > 0) {
+        title = rawTitle.slice(0, dashIdx).trim();
+        if (!publisher) publisher = rawTitle.slice(dashIdx + 3).trim();
+      }
+      const pubIso = pubDate ? new Date(pubDate).toISOString() : null;
+      items.push({
+        uuid: `${symbol}-${i++}`,
+        title,
+        link,
+        publisher,
+        publishedAt: pubIso && pubIso !== "Invalid Date" ? pubIso : null,
+        thumbnail: null,
+      });
+    }
+    return { news: items };
   });
 }
 
