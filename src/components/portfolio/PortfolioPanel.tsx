@@ -43,6 +43,14 @@ export function PortfolioPanel({
   onPricesChangeRef.current = onPricesChange;
   useEffect(() => { onPricesChangeRef.current(prices); }, [prices]);
 
+  const totalDeposits = useMemo(() => {
+    return transactions.reduce((a, tx) => {
+      if (tx.action === "DEPOSIT") return a + tx.amount;
+      if (tx.action === "WITHDRAW") return a - tx.amount;
+      return a;
+    }, 0);
+  }, [transactions]);
+
   const { rows, invested, current, realized } = useMemo(() => {
     let inv = 0, cur = 0;
     const sectorByTicker: Record<string, string> = {};
@@ -305,7 +313,7 @@ export function PortfolioPanel({
 
   return (
     <div className="space-y-6">
-      <PortfolioStats invested={invested} current={current} realized={realized} cashBalance={cashBalance} cagr={cagr} cagrYears={cagrYears}/>
+      <PortfolioStats invested={invested} current={current} realized={realized} cashBalance={cashBalance} cagr={cagr} cagrYears={cagrYears} totalDeposits={totalDeposits}/>
       <PortfolioActions
         onAddFunds={onAddFunds} onWithdraw={onWithdraw} onBuy={onBuy}
         onSell={() => onSell()} onExportExcel={handleExportExcel}
