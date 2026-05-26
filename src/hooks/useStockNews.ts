@@ -9,7 +9,7 @@ export interface NewsItem {
   thumbnail: string | null;
 }
 
-const BASE = import.meta.env.VITE_API_BASE ?? "";
+const BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? "";
 
 export function useStockNews(ticker: string | null) {
   return useQuery<NewsItem[]>({
