@@ -138,7 +138,7 @@ export function BuyStockModal({ open, onClose, cashBalance, onConfirm }: Props) 
                 onChange={(e) => { setQuery(e.target.value); if (picked) { setPicked(null); setVerified(null); setPrice(""); } }}
                 onFocus={() => results.length && !picked && setShowResults(true)}
                 onBlur={() => setTimeout(() => setShowResults(false), 150)}
-                placeholder="e.g. Anupam Rasayan India Ltd"
+                placeholder="Enter Stock Name"
                 autoFocus
                 className="pl-10 pr-10"
               />
