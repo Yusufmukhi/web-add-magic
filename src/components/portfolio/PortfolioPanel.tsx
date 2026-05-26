@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
-import { useStockQuotes } from "@/hooks/useStockQuote";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useStockQuote, useStockQuotes } from "@/hooks/useStockQuote";
 import type { Holding, HoldingRow, Transaction } from "@/types/portfolio.types";
 import { PortfolioStats } from "./PortfolioStats";
 import { HoldingsTable } from "./HoldingsTable";
 import { AllocationDonut } from "./AllocationDonut";
 import { PortfolioActions } from "./PortfolioActions";
 import { PortfolioValueChart } from "./PortfolioValueChart";
+import { StockDetail } from "@/components/detail/StockDetail";
 import { downloadExcel, parseHoldingsExcel, toSerial, S, n, t, empty, NCOLS } from "@/utils/excel";
 import type { CellDef } from "@/utils/excel";
 import { xirr } from "@/utils/finance";
@@ -311,9 +312,11 @@ export function PortfolioPanel({
     downloadExcel(xlRows, colWidths, `portfolio-${today}.xlsx`);
   }, [rows, invested, current, realized, cashBalance, cagr, cagrYears, transactions, portfolio]);
 
+  const [selected, setSelected] = useState<string | null>(null);
+  const selectedQuery = useStockQuote(selected);
+
   return (
     <div className="space-y-6">
-      <PortfolioStats invested={invested} current={current} realized={realized} cashBalance={cashBalance} cagr={cagr} cagrYears={cagrYears}/>
       <PortfolioActions
         onAddFunds={onAddFunds} onWithdraw={onWithdraw} onBuy={onBuy}
         onSell={() => onSell()} onExportExcel={handleExportExcel}
@@ -326,7 +329,23 @@ export function PortfolioPanel({
         } : undefined}
         canSell={portfolio.length > 0} canExport={portfolio.length > 0}
       />
-      <HoldingsTable rows={rows} onSell={onSell} onEdit={onEditHolding} onDelete={onDeleteHolding} />
+      <HoldingsTable
+        rows={rows}
+        onSell={onSell}
+        onEdit={onEditHolding}
+        onDelete={onDeleteHolding}
+        onSelect={(t) => setSelected((c) => (c === t ? null : t))}
+        selected={selected}
+      />
+      {selected && (
+        <StockDetail
+          ticker={selected}
+          data={selectedQuery.data}
+          isLoading={selectedQuery.isLoading}
+          onClose={() => setSelected(null)}
+        />
+      )}
+      <PortfolioStats invested={invested} current={current} realized={realized} cashBalance={cashBalance} cagr={cagr} cagrYears={cagrYears}/>
       {portfolio.length > 0 && (
         <>
           <PortfolioValueChart portfolio={portfolio} />
