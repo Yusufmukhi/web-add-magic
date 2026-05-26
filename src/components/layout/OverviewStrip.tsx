@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { Wallet, TrendingUp, TrendingDown, PiggyBank, Activity } from "lucide-react";
 import type { Holding } from "@/types/portfolio.types";
 import type { QuoteResult } from "@/hooks/useStockQuote";
-import { formatINR, formatChangePct, formatNumber } from "@/utils/formatters";
+import { formatINR, formatNumber } from "@/utils/formatters";
 
 interface Props {
   portfolio: Holding[];
@@ -45,6 +45,7 @@ export function OverviewStrip({
   const tone = (n: number) =>
     n > 0 ? "text-gain" : n < 0 ? "text-loss" : "text-muted-foreground";
 
+  void dayPL; void dayPct;
   const stats = [
     {
       label: "Portfolio Value",
@@ -52,13 +53,6 @@ export function OverviewStrip({
       sub: portfolio.length === 0 ? "No holdings" : `${portfolio.length} holdings`,
       icon: Wallet,
       tone: "",
-    },
-    {
-      label: "Day P&L",
-      value: `${dayPL >= 0 ? "+" : ""}${formatINR(dayPL)}`,
-      sub: invested > 0 ? formatChangePct(dayPct) : "—",
-      icon: dayPL >= 0 ? TrendingUp : TrendingDown,
-      tone: tone(dayPL),
     },
     {
       label: "Total P&L",
@@ -84,7 +78,7 @@ export function OverviewStrip({
   ];
 
   return (
-    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
       {stats.map((s) => {
         const Icon = s.icon;
         return (
