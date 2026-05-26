@@ -71,10 +71,10 @@ export async function searchStocks(
   const data = await getJSON<SearchApiResponse>(
     `/api/yahoo/search?q=${encodeURIComponent(query)}`
   );
-  return (data.quotes ?? []).filter(
-    (q) => q.exchange === "NSI" && q.quoteType === "EQUITY"
-  );
+  // Backend already filters to NSE/BSE equities and sorts NSE first.
+  return (data.quotes ?? []).filter((q) => q.quoteType === "EQUITY");
 }
+
 
 export async function fetchHistory(
   ticker: string,

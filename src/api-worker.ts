@@ -191,12 +191,14 @@ async function yfFetch(url: string, isRetry = false): Promise<unknown> {
   return res.json();
 }
 
-// NSE suffix helper
+// Normalize ticker: keep .NS / .BO suffix as-is; default to .NS for bare symbols.
 function toNS(ticker: string): string {
   const t = ticker.trim().toUpperCase();
-  if (t.startsWith("^")) return t; // indices like ^NSEI
-  return t.endsWith(".NS") ? t : `${t}.NS`;
+  if (t.startsWith("^")) return t;
+  if (t.endsWith(".NS") || t.endsWith(".BO")) return t;
+  return `${t}.NS`;
 }
+
 
 // ---------------------------------------------------------------------------
 // Quote endpoint  →  /api/yahoo/quote/:ticker
@@ -306,14 +308,15 @@ async function handleHistory(
 // ---------------------------------------------------------------------------
 
 async function handleSearch(query: string): Promise<unknown> {
-  const q = query.trim().toUpperCase();
+  const q = query.trim();
   if (!q) return { quotes: [] };
 
-  const symbol = toNS(q);
-  const key = `search:${symbol}`;
+  const key = `search:${q.toLowerCase()}`;
 
   return withCache(key, 5 * 60_000, async () => {
-    const url = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(q)}&lang=en-US&region=IN&quotesCount=10&newsCount=0&listsCount=0&enableFuzzyQuery=false&enableCb=false&enableNavLinks=false&enableEnhancedTrivialQuery=true&corsDomain=finance.yahoo.com`;
+    // Search by the raw user query — Yahoo's search resolves both symbols
+    // and company names (e.g. "Anupam Rasayan India").
+    const url = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(q)}&lang=en-US&region=IN&quotesCount=20&newsCount=0&listsCount=0&enableFuzzyQuery=true&enableCb=false&enableNavLinks=false&enableEnhancedTrivialQuery=true&corsDomain=finance.yahoo.com`;
 
     const raw = (await yfFetch(url)) as {
       quotes?: Array<{
@@ -325,24 +328,27 @@ async function handleSearch(query: string): Promise<unknown> {
       }>;
     };
 
+    // Accept NSE (NSI/NSE) and BSE (BSE/BOM), equities only.
+    const rank: Record<string, number> = { NSI: 0, NSE: 0, BSE: 1, BOM: 1 };
     const quotes = (raw?.quotes ?? [])
-      // FIX: Yahoo returns "NSI" on some endpoints and "NSE" on others — accept both
-      .filter(
-        (q) =>
-          (q.exchange === "NSI" || q.exchange === "NSE") &&
-          q.quoteType === "EQUITY"
-      )
+      .filter((q) => {
+        if (q.quoteType !== "EQUITY" || !q.symbol) return false;
+        const ex = q.exchange ?? "";
+        return ex in rank;
+      })
       .map((q) => ({
         symbol: q.symbol,
-        exchange: q.exchange,
+        exchange: q.exchange === "NSI" ? "NSE" : q.exchange === "BOM" ? "BSE" : q.exchange,
         quoteType: q.quoteType,
         longname: q.longname ?? "",
         shortname: q.shortname ?? "",
-      }));
+      }))
+      .sort((a, b) => (rank[a.exchange ?? ""] ?? 9) - (rank[b.exchange ?? ""] ?? 9));
 
     return { quotes };
   });
 }
+
 
 // ---------------------------------------------------------------------------
 // News endpoint  →  /api/yahoo/news/:ticker
