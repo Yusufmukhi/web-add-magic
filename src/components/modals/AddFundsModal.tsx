@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { MobileSheet } from "./MobileSheet";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -25,45 +25,40 @@ export function AddFundsModal({ open, onClose, cashBalance, onConfirm }: Props) 
     onClose();
   };
   return (
-    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-[95vw] sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle className="font-display">💰 Add Funds</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-3 py-2">
-          <p className="text-sm text-muted-foreground">
-            Current balance: <span className="font-mono font-semibold">{formatINR(cashBalance)}</span>
-          </p>
-          <div className="space-y-1.5">
-            <Label htmlFor="add-amt">Amount (₹)</Label>
-            <Input
-              id="add-amt"
-              type="number"
-              min="0"
-              step="0.01"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              placeholder="50000"
-              autoFocus
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="add-note">Description <span className="text-muted-foreground">(optional)</span></Label>
-            <Textarea
-              id="add-note"
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              placeholder="e.g. Salary, UPI from HDFC, Diwali bonus…"
-              rows={2}
-              maxLength={200}
-            />
-          </div>
+    <MobileSheet open={open} onClose={onClose} title="💰 Add Funds">
+      <div className="space-y-3 py-2">
+        <p className="text-sm text-muted-foreground">
+          Current balance: <span className="font-mono font-semibold">{formatINR(cashBalance)}</span>
+        </p>
+        <div className="space-y-1.5">
+          <Label htmlFor="add-amt">Amount (₹)</Label>
+          <Input
+            id="add-amt"
+            type="number"
+            min="0"
+            step="0.01"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            placeholder="50000"
+            autoFocus
+          />
         </div>
-        <DialogFooter>
-          <Button variant="ghost" onClick={onClose}>Cancel</Button>
-          <Button onClick={handle}>Add Funds</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        <div className="space-y-1.5">
+          <Label htmlFor="add-note">Description <span className="text-muted-foreground">(optional)</span></Label>
+          <Textarea
+            id="add-note"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="e.g. Salary, UPI from HDFC, Diwali bonus…"
+            rows={2}
+            maxLength={200}
+          />
+        </div>
+        <div className="flex gap-2 pt-2">
+          <Button variant="ghost" className="flex-1" onClick={onClose}>Cancel</Button>
+          <Button className="flex-1" onClick={handle}>Add Funds</Button>
+        </div>
+      </div>
+    </MobileSheet>
   );
 }
