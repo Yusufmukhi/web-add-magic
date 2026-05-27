@@ -1,9 +1,11 @@
-import { Inbox, Pencil, Trash2 } from "lucide-react";
+import { Inbox, Pencil, Trash2, ChevronRight } from "lucide-react";
+import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import type { HoldingRow } from "@/types/portfolio.types";
 import { formatINR, formatNumber } from "@/utils/formatters";
 import { sectorBadgeClass } from "@/utils/colorHelpers";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 interface Props {
   rows: HoldingRow[];
@@ -15,6 +17,17 @@ interface Props {
 }
 
 export function HoldingsTable({ rows, onSell, onEdit, onDelete, onSelect, selected }: Props) {
+  const isMobile = useIsMobile();
+  const navigate = useNavigate();
+
+  const handleRowClick = (ticker: string) => {
+    if (isMobile) {
+      navigate({ to: "/holding/$symbol", params: { symbol: ticker } });
+    } else {
+      onSelect?.(ticker);
+    }
+  };
+
   if (rows.length === 0) {
     return (
       <div className="grid place-items-center rounded-2xl border border-dashed border-border py-16 text-center minimal:rounded-none">
@@ -26,7 +39,48 @@ export function HoldingsTable({ rows, onSell, onEdit, onDelete, onSelect, select
       </div>
     );
   }
+
   const maxW = Math.max(...rows.map((r) => r.weight), 1);
+  const formatIN = (n: number) => n.toLocaleString("en-IN", { maximumFractionDigits: 2 });
+
+  // Mobile: compact row layout
+  if (isMobile) {
+    return (
+      <div className="rounded-2xl border border-border bg-card overflow-hidden minimal:rounded-none minimal:border-x-0 minimal:bg-transparent">
+        {rows.map((r) => (
+          <div
+            key={r.ticker}
+            onClick={() => handleRowClick(r.ticker)}
+            className="flex items-center gap-3 border-b border-border px-4 py-3 cursor-pointer active:bg-accent/40 transition-colors"
+            style={{
+              borderLeft: `3px solid ${r.pl >= 0 ? "rgb(34 197 94 / 0.5)" : "rgb(239 68 68 / 0.5)"}`,
+              minHeight: 60,
+            }}
+          >
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-1.5">
+                <span className="font-mono text-[14px] font-bold">{r.ticker}</span>
+                <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground font-medium">
+                  {r.qty} shares
+                </span>
+              </div>
+              <div className="truncate text-[12px] text-muted-foreground mt-0.5">{r.name}</div>
+            </div>
+            <div className="text-right shrink-0">
+              <div className="font-mono text-[14px] font-bold">₹{formatIN(r.value)}</div>
+              <div className={`text-[12px] font-semibold ${r.pl >= 0 ? "text-gain" : "text-loss"}`}>
+                {r.pl >= 0 ? "+" : ""}₹{formatIN(r.pl)}{" "}
+                <span className="text-[10px]">({r.plPct >= 0 ? "+" : ""}{formatNumber(r.plPct, 1)}%)</span>
+              </div>
+            </div>
+            <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  // Desktop: full table
   return (
     <div className="overflow-x-auto rounded-2xl border border-border bg-card creative:shadow-soft minimal:rounded-none minimal:border-x-0 minimal:bg-transparent">
       <table className="w-full text-sm">
@@ -47,7 +101,7 @@ export function HoldingsTable({ rows, onSell, onEdit, onDelete, onSelect, select
             return (
               <tr
                 key={r.ticker}
-                onClick={() => onSelect?.(r.ticker)}
+                onClick={() => handleRowClick(r.ticker)}
                 className={`cursor-pointer border-b border-border transition hover:bg-accent/30 ${isSelected ? "bg-accent/40" : ""}`}
               >
                 <td className="px-3 py-2 font-mono font-semibold">{r.ticker}</td>
