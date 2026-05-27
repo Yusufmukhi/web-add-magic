@@ -57,8 +57,9 @@ function TradingViewChart({ symbol, theme }: { symbol: string; theme: string }) 
   );
 }
 
+// FIX: was destructuring `news` but hook returns `data`
 function NewsSection({ ticker }: { ticker: string }) {
-  const { news, isLoading } = useStockNews(ticker);
+  const { data: news, isLoading } = useStockNews(ticker);
 
   if (isLoading) {
     return (
