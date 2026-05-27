@@ -11,8 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { BuyStockModal } from "@/components/modals/BuyStockModal";
 import { StatCard } from "./StatCard";
 import { formatINR, formatMarketCap, formatNumber, formatPct, formatChangePct } from "@/utils/formatters";
-import { changeColorClass, sectorBadgeClass } from "@/utils/colorHelpers";
-import { xirr } from "@/utils/finance";
+import { changeColorClass } from "@/utils/colorHelpers";
 import { useNavigate } from "@tanstack/react-router";
 
 interface Props {
@@ -57,8 +56,9 @@ function TradingViewChart({ symbol, theme }: { symbol: string; theme: string }) 
   );
 }
 
+// FIX: was destructuring `news` but hook returns `data`
 function NewsSection({ ticker }: { ticker: string }) {
-  const { news, isLoading } = useStockNews(ticker);
+  const { data: news, isLoading } = useStockNews(ticker);
 
   if (isLoading) {
     return (
@@ -121,7 +121,7 @@ function NewsSection({ ticker }: { ticker: string }) {
 
 export function StockDetailPage({ symbol, onBack }: Props) {
   const { data, isLoading } = useStockQuote(symbol);
-  const { portfolio, transactions, cashBalance, buy } = usePortfolioState();
+  const { portfolio, cashBalance, buy } = usePortfolioState();
   const { tickers, add, remove } = useWatchlist();
   const { theme } = useTheme();
   const navigate = useNavigate();
@@ -135,10 +135,6 @@ export function StockDetailPage({ symbol, onBack }: Props) {
     document.title = `${symbol} | Dalal Street`;
     return () => { document.title = "Dalal Street — NSE Stock Watchlist"; };
   }, [symbol]);
-
-  const handleBuy = (ticker: string, price: number, qty: number, date: string) => {
-    return buy(ticker, price, qty, date);
-  };
 
   const holdingSummary = (() => {
     if (!holding || !data) return null;
@@ -213,11 +209,7 @@ export function StockDetailPage({ symbol, onBack }: Props) {
                 <Heart className={`h-3.5 w-3.5 ${isWatchlisted ? "fill-current" : ""}`} />
                 {isWatchlisted ? "Watchlisted" : "Watchlist"}
               </button>
-              <Button
-                size="sm"
-                className="rounded-full font-semibold"
-                onClick={() => setBuyOpen(true)}
-              >
+              <Button size="sm" className="rounded-full font-semibold" onClick={() => setBuyOpen(true)}>
                 Buy
               </Button>
             </div>
@@ -249,7 +241,7 @@ export function StockDetailPage({ symbol, onBack }: Props) {
           </div>
         ) : null}
 
-        {/* SECTION 4 — More Fundamentals (expandable) */}
+        {/* SECTION 4 — More Fundamentals */}
         {data && (
           <div className="rounded-xl border border-border overflow-hidden">
             <button
@@ -278,7 +270,7 @@ export function StockDetailPage({ symbol, onBack }: Props) {
           <NewsSection ticker={symbol} />
         </div>
 
-        {/* SECTION 6 — Mini Holding Summary */}
+        {/* SECTION 6 — Mini Holding Summary (if also a holding) */}
         {holdingSummary && (
           <div className="rounded-xl border border-border bg-card p-4 space-y-2">
             <h2 className="text-[13px] font-medium text-muted-foreground uppercase tracking-wider">Your Position</h2>
@@ -327,7 +319,7 @@ export function StockDetailPage({ symbol, onBack }: Props) {
         open={buyOpen}
         onClose={() => setBuyOpen(false)}
         cashBalance={cashBalance}
-        onConfirm={handleBuy}
+        onConfirm={(ticker, price, qty, date) => buy(ticker, price, qty, date)}
       />
     </div>
   );
