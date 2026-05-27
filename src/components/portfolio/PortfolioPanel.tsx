@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useStockQuote, useStockQuotes } from "@/hooks/useStockQuote";
 import type { Holding, HoldingRow, Transaction } from "@/types/portfolio.types";
 import { PortfolioStats } from "./PortfolioStats";
+import { PortfolioMetricStrip } from "./PortfolioMetricStrip";
 import { HoldingsTable } from "./HoldingsTable";
 import { AllocationDonut } from "./AllocationDonut";
 import { PortfolioActions } from "./PortfolioActions";
@@ -317,6 +318,15 @@ export function PortfolioPanel({
 
   return (
     <div className="space-y-6">
+      {/* Mobile metric chips strip */}
+      <div className="md:hidden">
+        <PortfolioMetricStrip
+          invested={invested}
+          current={current}
+          cashBalance={cashBalance}
+          cagr={cagr}
+        />
+      </div>
       <PortfolioActions
         onAddFunds={onAddFunds} onWithdraw={onWithdraw} onBuy={onBuy}
         onSell={() => onSell()} onExportExcel={handleExportExcel}
