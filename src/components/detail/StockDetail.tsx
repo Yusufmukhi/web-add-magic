@@ -26,6 +26,24 @@ function TradingViewChart({ symbol, theme }: { symbol: string; theme: string }) 
   const intervalMap: Record<string, string> = {
     "1D": "D", "1W": "W", "1M": "M", "3M": "3M", "1Y": "12M", "ALL": "60M",
   };
+  const rangeMap: Record<string, string> = {
+    "1D": "1D", "1W": "5D", "1M": "1M", "3M": "3M", "1Y": "12M", "ALL": "60M",
+  };
+
+  const config = encodeURIComponent(JSON.stringify({
+    autosize: true,
+    symbol: `NSE:${symbol}`,
+    interval: intervalMap[range],
+    range: rangeMap[range],
+    timezone: "Asia/Kolkata",
+    theme: theme === "dark" ? "dark" : "light",
+    style: "1",
+    locale: "en",
+    hide_side_toolbar: false,
+    allow_symbol_change: false,
+    save_image: false,
+    calendar: false,
+  }));
 
   return (
     <div className="space-y-3">
@@ -44,13 +62,14 @@ function TradingViewChart({ symbol, theme }: { symbol: string; theme: string }) 
           </button>
         ))}
       </div>
-      <div className="overflow-hidden rounded-xl border border-border" style={{ height: 340 }}>
+      <div className="overflow-hidden rounded-xl border border-border" style={{ height: 360 }}>
         <iframe
           key={`${symbol}-${range}-${theme}`}
-          src={`https://s.tradingview.com/widgetembed/?frameElementId=tradingview_chart&symbol=NSE%3A${symbol}&interval=${intervalMap[range]}&hidesidetoolbar=1&hidetoptoolbar=0&theme=${theme === "dark" ? "dark" : "light"}&style=1&timezone=Asia%2FKolkata&withdateranges=0&showpopupbutton=0&studies=[]&locale=en&utm_source=&utm_medium=widget&utm_campaign=chart`}
+          src={`https://s.tradingview.com/embed-widget/advanced-chart/?locale=en#${config}`}
           className="h-full w-full border-0"
           title={`${symbol} Chart`}
           allowTransparency
+          allow="clipboard-write"
         />
       </div>
     </div>
