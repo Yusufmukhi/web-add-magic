@@ -230,7 +230,7 @@ export function BuyStockModal({ open, onClose, cashBalance, onConfirm }: Props) 
             {submitting ? <><Loader2 className="mr-1 h-4 w-4 animate-spin" /> Buying…</> : "Buy"}
           </Button>
         </div>
-        </div>
+        
     </MobileSheet>
   );
 }
