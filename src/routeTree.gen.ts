@@ -10,6 +10,8 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as StockSymbolRouteImport } from './routes/stock/$symbol'
+import { Route as HoldingSymbolRouteImport } from './routes/holding/$symbol'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -17,26 +19,46 @@ const IndexRoute = IndexRouteImport.update({
   getParentRoute: () => rootRouteImport,
 } as any)
 
+const StockSymbolRoute = StockSymbolRouteImport.update({
+  id: '/stock/$symbol',
+  path: '/stock/$symbol',
+  getParentRoute: () => rootRouteImport,
+} as any)
+
+const HoldingSymbolRoute = HoldingSymbolRouteImport.update({
+  id: '/holding/$symbol',
+  path: '/holding/$symbol',
+  getParentRoute: () => rootRouteImport,
+} as any)
+
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/stock/$symbol': typeof StockSymbolRoute
+  '/holding/$symbol': typeof HoldingSymbolRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/stock/$symbol': typeof StockSymbolRoute
+  '/holding/$symbol': typeof HoldingSymbolRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/stock/$symbol': typeof StockSymbolRoute
+  '/holding/$symbol': typeof HoldingSymbolRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths: '/' | '/stock/$symbol' | '/holding/$symbol'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to: '/' | '/stock/$symbol' | '/holding/$symbol'
+  id: '__root__' | '/' | '/stock/$symbol' | '/holding/$symbol'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  StockSymbolRoute: typeof StockSymbolRoute
+  HoldingSymbolRoute: typeof HoldingSymbolRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -48,11 +70,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/stock/$symbol': {
+      id: '/stock/$symbol'
+      path: '/stock/$symbol'
+      fullPath: '/stock/$symbol'
+      preLoaderRoute: typeof StockSymbolRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/holding/$symbol': {
+      id: '/holding/$symbol'
+      path: '/holding/$symbol'
+      fullPath: '/holding/$symbol'
+      preLoaderRoute: typeof HoldingSymbolRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  StockSymbolRoute: StockSymbolRoute,
+  HoldingSymbolRoute: HoldingSymbolRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
