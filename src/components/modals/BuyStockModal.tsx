@@ -220,17 +220,17 @@ export function BuyStockModal({ open, onClose, cashBalance, onConfirm }: Props) 
           </div>
           {err && <p className="col-span-2 text-xs text-loss">{err}</p>}
         </div>
-        <div className="col-span-2 flex gap-2 pt-2">
-          <Button variant="ghost" className="flex-1" onClick={onClose} disabled={submitting}>Cancel</Button>
-          <Button
-            className="flex-1 bg-gain text-primary-foreground hover:bg-gain/90"
-            onClick={handle}
-            disabled={!verified || verifying || submitting}
-          >
-            {submitting ? <><Loader2 className="mr-1 h-4 w-4 animate-spin" /> Buying…</> : "Buy"}
-          </Button>
+          <div className="col-span-2 flex gap-2 pt-2">
+            <Button variant="ghost" className="flex-1" onClick={onClose} disabled={submitting}>Cancel</Button>
+            <Button
+              className="flex-1 bg-gain text-primary-foreground hover:bg-gain/90"
+              onClick={handle}
+              disabled={!verified || verifying || submitting}
+            >
+              {submitting ? <><Loader2 className="mr-1 h-4 w-4 animate-spin" /> Buying…</> : "Buy"}
+            </Button>
+          </div>
         </div>
-        
     </MobileSheet>
   );
 }
