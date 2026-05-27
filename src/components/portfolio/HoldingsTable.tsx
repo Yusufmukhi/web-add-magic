@@ -1,31 +1,28 @@
-import { Inbox, Pencil, Trash2, ChevronRight } from "lucide-react";
+import { Pencil, Trash2, ChevronRight, Inbox } from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import type { HoldingRow } from "@/types/portfolio.types";
 import { formatINR, formatNumber } from "@/utils/formatters";
 import { sectorBadgeClass } from "@/utils/colorHelpers";
-import { useIsMobile } from "@/hooks/use-mobile";
 
 interface Props {
   rows: HoldingRow[];
   onSell: (ticker: string) => void;
   onEdit?: (ticker: string) => void;
   onDelete?: (ticker: string) => void;
+  // kept for backward compat but no longer used for primary navigation
   onSelect?: (ticker: string) => void;
   selected?: string | null;
 }
 
-export function HoldingsTable({ rows, onSell, onEdit, onDelete, onSelect, selected }: Props) {
-  const isMobile = useIsMobile();
+export function HoldingsTable({ rows, onSell, onEdit, onDelete }: Props) {
   const navigate = useNavigate();
 
+  // FIX: Always navigate to full holding detail page on both mobile and desktop
+  // (previously desktop used inline panel with wrong props — broken)
   const handleRowClick = (ticker: string) => {
-    if (isMobile) {
-      navigate({ to: "/holding/$symbol", params: { symbol: ticker } });
-    } else {
-      onSelect?.(ticker);
-    }
+    navigate({ to: "/holding/$symbol", params: { symbol: ticker } });
   };
 
   if (rows.length === 0) {
@@ -43,10 +40,11 @@ export function HoldingsTable({ rows, onSell, onEdit, onDelete, onSelect, select
   const maxW = Math.max(...rows.map((r) => r.weight), 1);
   const formatIN = (n: number) => n.toLocaleString("en-IN", { maximumFractionDigits: 2 });
 
-  // Mobile: compact row layout
-  if (isMobile) {
-    return (
-      <div className="rounded-2xl border border-border bg-card overflow-hidden minimal:rounded-none minimal:border-x-0 minimal:bg-transparent">
+  // Mobile: compact row layout — Angel One style
+  return (
+    <>
+      {/* Mobile */}
+      <div className="md:hidden rounded-2xl border border-border bg-card overflow-hidden minimal:rounded-none minimal:border-x-0 minimal:bg-transparent">
         {rows.map((r) => (
           <div
             key={r.ticker}
@@ -77,46 +75,50 @@ export function HoldingsTable({ rows, onSell, onEdit, onDelete, onSelect, select
           </div>
         ))}
       </div>
-    );
-  }
 
-  // Desktop: full table
-  return (
-    <div className="overflow-x-auto rounded-2xl border border-border bg-card creative:shadow-soft minimal:rounded-none minimal:border-x-0 minimal:bg-transparent">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-border bg-muted/30 text-left text-[11px] uppercase tracking-wider text-muted-foreground minimal:bg-transparent">
-            <th className="px-3 py-2.5 font-medium">Ticker</th>
-            <th className="hidden px-3 py-2.5 font-medium sm:table-cell">Sector</th>
-            <th className="px-3 py-2.5 text-right font-medium">Qty</th>
-            <th className="hidden px-3 py-2.5 text-right font-medium md:table-cell">CMP</th>
-            <th className="px-3 py-2.5 text-right font-medium">P&amp;L</th>
-            <th className="hidden px-3 py-2.5 text-right font-medium lg:table-cell">Weight</th>
-            <th className="px-3 py-2.5 text-right font-medium">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r) => {
-            const isSelected = selected === r.ticker;
-            return (
+      {/* Desktop: full table */}
+      <div className="hidden md:block overflow-x-auto rounded-2xl border border-border bg-card creative:shadow-soft minimal:rounded-none minimal:border-x-0 minimal:bg-transparent">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-border bg-muted/30 text-left text-[11px] uppercase tracking-wider text-muted-foreground minimal:bg-transparent">
+              <th className="px-3 py-2.5 font-medium">Ticker</th>
+              <th className="px-3 py-2.5 font-medium">Name</th>
+              <th className="hidden px-3 py-2.5 font-medium sm:table-cell">Sector</th>
+              <th className="px-3 py-2.5 text-right font-medium">Qty</th>
+              <th className="px-3 py-2.5 text-right font-medium">Avg</th>
+              <th className="px-3 py-2.5 text-right font-medium">CMP</th>
+              <th className="px-3 py-2.5 text-right font-medium">Invested</th>
+              <th className="px-3 py-2.5 text-right font-medium">Value</th>
+              <th className="px-3 py-2.5 text-right font-medium">P&amp;L</th>
+              <th className="hidden px-3 py-2.5 text-right font-medium lg:table-cell">Weight</th>
+              <th className="px-3 py-2.5 text-right font-medium">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
               <tr
                 key={r.ticker}
                 onClick={() => handleRowClick(r.ticker)}
-                className={`cursor-pointer border-b border-border transition hover:bg-accent/30 ${isSelected ? "bg-accent/40" : ""}`}
+                className="cursor-pointer border-b border-border transition hover:bg-accent/30"
+                style={{ borderLeft: `3px solid ${r.pl >= 0 ? "rgb(34 197 94 / 0.3)" : "rgb(239 68 68 / 0.3)"}` }}
               >
-                <td className="px-3 py-2 font-mono font-semibold">{r.ticker}</td>
-                <td className="hidden px-3 py-2 sm:table-cell">
+                <td className="px-3 py-2.5 font-mono font-bold text-[13px]">{r.ticker}</td>
+                <td className="px-3 py-2.5 text-[12px] text-muted-foreground max-w-[140px] truncate">{r.name}</td>
+                <td className="hidden px-3 py-2.5 sm:table-cell">
                   <Badge variant="outline" className={`text-[10px] ${sectorBadgeClass(r.sector)}`}>
                     {r.sector}
                   </Badge>
                 </td>
-                <td className="px-3 py-2 text-right font-mono">{r.qty}</td>
-                <td className="hidden px-3 py-2 text-right font-mono md:table-cell">{formatINR(r.cp)}</td>
-                <td className={`px-3 py-2 text-right font-mono ${r.pl >= 0 ? "text-gain" : "text-loss"}`}>
+                <td className="px-3 py-2.5 text-right font-mono text-[13px]">{r.qty}</td>
+                <td className="px-3 py-2.5 text-right font-mono text-[13px]">{formatINR(r.avgPrice)}</td>
+                <td className="px-3 py-2.5 text-right font-mono text-[13px] font-semibold">{formatINR(r.cp)}</td>
+                <td className="px-3 py-2.5 text-right font-mono text-[13px]">₹{formatIN(r.invested)}</td>
+                <td className="px-3 py-2.5 text-right font-mono text-[13px] font-semibold">₹{formatIN(r.value)}</td>
+                <td className={`px-3 py-2.5 text-right font-mono text-[13px] ${r.pl >= 0 ? "text-gain" : "text-loss"}`}>
                   {r.pl >= 0 ? "+" : ""}{formatNumber(r.pl, 2)}
                   <span className="ml-1 text-[10px]">({r.plPct >= 0 ? "+" : ""}{formatNumber(r.plPct, 1)}%)</span>
                 </td>
-                <td className="hidden px-3 py-2 lg:table-cell">
+                <td className="hidden px-3 py-2.5 lg:table-cell">
                   <div className="flex items-center gap-2">
                     <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
                       <div
@@ -129,7 +131,7 @@ export function HoldingsTable({ rows, onSell, onEdit, onDelete, onSelect, select
                     </span>
                   </div>
                 </td>
-                <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
+                <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
                   <div className="flex items-center justify-end gap-1">
                     {onEdit && (
                       <Button
@@ -166,10 +168,10 @@ export function HoldingsTable({ rows, onSell, onEdit, onDelete, onSelect, select
                   </div>
                 </td>
               </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }
