@@ -3,13 +3,13 @@ import { ArrowLeft, TrendingUp, TrendingDown, ShoppingCart, TrendingDown as Sell
 import { useNavigate } from "@tanstack/react-router";
 import { useStockQuote } from "@/hooks/useStockQuote";
 import { usePortfolioState } from "@/hooks/usePortfolio";
-import { useTheme } from "@/hooks/useTheme";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { BuyStockModal } from "@/components/modals/BuyStockModal";
 import { SellStockModal } from "@/components/modals/SellStockModal";
 import { StatCard } from "./StatCard";
+import { StockChart } from "./StockChart";
 import { formatINR, formatMarketCap, formatNumber, formatPct, formatChangePct } from "@/utils/formatters";
 import { changeColorClass } from "@/utils/colorHelpers";
 import { xirr } from "@/utils/finance";
@@ -20,38 +20,10 @@ interface Props {
   onBack: () => void;
 }
 
-function TradingViewChartMini({ symbol, theme }: { symbol: string; theme: string }) {
-  const config = encodeURIComponent(JSON.stringify({
-    autosize: true,
-    symbol: `NSE:${symbol}`,
-    interval: "D",
-    timezone: "Asia/Kolkata",
-    theme: theme === "dark" ? "dark" : "light",
-    style: "1",
-    locale: "en",
-    hide_side_toolbar: true,
-    allow_symbol_change: false,
-    save_image: false,
-    calendar: false,
-  }));
-  return (
-    <div className="overflow-hidden rounded-xl border border-border" style={{ height: 300 }}>
-      <iframe
-        key={`${symbol}-${theme}`}
-        src={`https://s.tradingview.com/embed-widget/advanced-chart/?locale=en#${config}`}
-        className="h-full w-full border-0"
-        title={`${symbol} Chart`}
-        allowTransparency
-        allow="clipboard-write"
-      />
-    </div>
-  );
-}
-
 export function HoldingDetailPage({ symbol, onBack }: Props) {
   const { data, isLoading } = useStockQuote(symbol);
   const { portfolio, transactions, cashBalance, buy, sell } = usePortfolioState();
-  const { theme } = useTheme();
+
   const navigate = useNavigate();
   const [buyOpen, setBuyOpen] = useState(false);
   const [sellOpen, setSellOpen] = useState(false);
@@ -247,7 +219,7 @@ export function HoldingDetailPage({ symbol, onBack }: Props) {
         {/* SECTION 4 — Chart + Fundamentals */}
         <div className="space-y-2">
           <h2 className="text-[13px] font-medium text-muted-foreground uppercase tracking-wider">Chart</h2>
-          <TradingViewChartMini symbol={symbol} theme={theme} />
+          <StockChart symbol={symbol} currentPrice={data?.cmp} />
         </div>
 
         {data && (
