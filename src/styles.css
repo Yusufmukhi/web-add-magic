@@ -210,3 +210,52 @@
   0%, 100% { box-shadow: 0 0 0 0 oklch(from var(--gain) l c h / 0.6); }
   50%      { box-shadow: 0 0 0 6px oklch(from var(--gain) l c h / 0); }
 }
+
+/* ===== Phase 5: Mobile UX Polish ===== */
+
+/* Bottom sheet slide-up */
+@keyframes sheet-slide-up {
+  from { transform: translateY(100%); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+@keyframes sheet-slide-down {
+  from { transform: translateY(0);    opacity: 1; }
+  to   { transform: translateY(100%); opacity: 0; }
+}
+
+.bottom-sheet-enter {
+  animation: sheet-slide-up 300ms cubic-bezier(0.32, 0.72, 0, 1) forwards;
+}
+
+/* Tab fade transition */
+@keyframes tab-fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.tab-content-enter {
+  animation: tab-fade-in 150ms ease-out forwards;
+}
+
+/* P&L flash animation */
+@keyframes flash-gain {
+  0%, 100% { background-color: transparent; }
+  30% { background-color: oklch(from var(--gain) l c h / 0.25); }
+}
+@keyframes flash-loss {
+  0%, 100% { background-color: transparent; }
+  30% { background-color: oklch(from var(--loss) l c h / 0.25); }
+}
+.flash-gain { animation: flash-gain 700ms ease-out; }
+.flash-loss { animation: flash-loss 700ms ease-out; }
+
+/* Skeleton shimmer */
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+
+/* Row press effect */
+.row-press:active {
+  transform: scale(0.99);
+  transition: transform 80ms ease;
+}
