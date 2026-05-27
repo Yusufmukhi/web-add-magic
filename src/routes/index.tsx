@@ -1,8 +1,10 @@
 import { useCallback, useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { toast } from "sonner";
-import { Briefcase, LineChart, ListChecks, Receipt, CalendarRange, Settings as SettingsIcon } from "lucide-react";
+import { Home as HomeIcon, Briefcase, LineChart, ListChecks, Receipt, CalendarRange, Settings as SettingsIcon } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { BottomNav, type NavTab } from "@/components/layout/BottomNav";
+import { HomeDashboard } from "@/components/home/HomeDashboard";
 import { Navbar } from "@/components/layout/Navbar";
 import { OverviewStrip } from "@/components/layout/OverviewStrip";
 import { AddStockBar } from "@/components/watchlist/AddStockBar";
@@ -43,6 +45,7 @@ function DashboardPage() {
   const [modal, setModal] = useState<"add" | "withdraw" | "buy" | "sell" | null>(null);
   const [sellPrefill, setSellPrefill] = useState<string | null>(null);
   const [portfolioPrices, setPortfolioPrices] = useState<Record<string, number>>({});
+  const [activeTab, setActiveTab] = useState<NavTab>("home");
 
   // Edit / delete state
   const [editing, setEditing] = useState<Holding | null>(null);
@@ -185,7 +188,7 @@ function DashboardPage() {
   const portfolioValue = current + cashBalance;
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen pb-20 md:pb-0">
       <Navbar rightSlot={<PriceAlertsButton quotes={alertsQuotes} />} />
       <main className="mx-auto max-w-7xl space-y-5 px-3 py-4 sm:px-6 sm:py-6">
         <section className="space-y-3">
@@ -206,9 +209,12 @@ function DashboardPage() {
           />
         </section>
 
-        <Tabs defaultValue="portfolio" className="space-y-5">
-          <div className="sticky top-0 z-10 -mx-3 overflow-x-auto bg-background/95 px-3 py-1 backdrop-blur sm:-mx-6 sm:px-6">
+        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as NavTab)} className="space-y-5">
+          <div className="sticky top-0 z-10 -mx-3 hidden overflow-x-auto bg-background/95 px-3 py-1 backdrop-blur md:block sm:-mx-6 sm:px-6">
             <TabsList className="inline-flex h-auto w-max bg-card creative:shadow-soft minimal:rounded-none minimal:border-b minimal:border-border minimal:bg-transparent minimal:p-0">
+              <TabsTrigger value="home" className="gap-1.5 minimal:rounded-none minimal:border-b-2 minimal:border-transparent minimal:bg-transparent minimal:data-[state=active]:border-primary minimal:data-[state=active]:bg-transparent minimal:data-[state=active]:shadow-none">
+                <HomeIcon className="h-3.5 w-3.5" /> Home
+              </TabsTrigger>
               <TabsTrigger value="portfolio" className="gap-1.5 minimal:rounded-none minimal:border-b-2 minimal:border-transparent minimal:bg-transparent minimal:data-[state=active]:border-primary minimal:data-[state=active]:bg-transparent minimal:data-[state=active]:shadow-none">
                 <Briefcase className="h-3.5 w-3.5" /> Portfolio
               </TabsTrigger>
@@ -229,6 +235,21 @@ function DashboardPage() {
               </TabsTrigger>
             </TabsList>
           </div>
+
+          <TabsContent value="home">
+            <HomeDashboard
+              portfolio={portfolio}
+              portfolioQuotes={portfolioQuotes}
+              watchlistTickers={tickers}
+              cashBalance={cashBalance}
+              transactions={transactions}
+              onGoTo={(t) => setActiveTab(t)}
+              onAddStock={() => setActiveTab("watchlist")}
+              onBuy={() => setModal("buy")}
+              onAddFunds={() => setModal("add")}
+            />
+          </TabsContent>
+
 
           <TabsContent value="portfolio">
             <PortfolioPanel
@@ -337,6 +358,8 @@ function DashboardPage() {
         confirmWord={pendingDelete ?? ""}
         confirmLabel="Delete holding"
       />
+
+      <BottomNav value={activeTab} onChange={setActiveTab} />
     </div>
   );
 }
