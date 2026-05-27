@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { MobileSheet } from "./MobileSheet";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -66,11 +66,7 @@ export function SellStockModal({ open, onClose, portfolio, prices, prefillTicker
   };
 
   return (
-    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-[95vw] sm:max-w-lg max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="font-display">🔴 Sell Stock</DialogTitle>
-        </DialogHeader>
+    <MobileSheet open={open} onClose={onClose} title="🔴 Sell Stock">
         <div className="grid grid-cols-1 gap-3 py-2 sm:grid-cols-2">
           <div className="sm:col-span-2 space-y-1.5">
             <Label>Stock</Label>
@@ -124,12 +120,11 @@ export function SellStockModal({ open, onClose, portfolio, prices, prefillTicker
             <div className="flex justify-between"><span className="text-muted-foreground">Net P&amp;L</span><span className={`font-mono font-semibold ${netProfit >= 0 ? "text-gain" : "text-loss"}`}>{netProfit >= 0 ? "+" : ""}{formatNumber(netProfit, 2)}</span></div>
           </div>
           {err && <p className="sm:col-span-2 text-xs text-loss">{err}</p>}
+          <div className="sm:col-span-2 flex gap-2 pt-2">
+            <Button variant="ghost" className="flex-1" onClick={onClose}>Cancel</Button>
+            <Button variant="destructive" className="flex-1" onClick={handle}>Sell</Button>
+          </div>
         </div>
-        <DialogFooter>
-          <Button variant="ghost" onClick={onClose}>Cancel</Button>
-          <Button variant="destructive" onClick={handle}>Sell</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    </MobileSheet>
   );
 }
