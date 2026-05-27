@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Loader2, Search, CheckCircle2, AlertCircle } from "lucide-react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { MobileSheet } from "./MobileSheet";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -121,11 +121,7 @@ export function BuyStockModal({ open, onClose, cashBalance, onConfirm }: Props) 
   };
 
   return (
-    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle className="font-display">🟢 Buy Stock</DialogTitle>
-        </DialogHeader>
+    <MobileSheet open={open} onClose={onClose} title="🟢 Buy Stock">
         <div className="grid grid-cols-2 gap-3 py-2">
           {/* Search field */}
           <div ref={wrapRef} className="col-span-2 space-y-1.5 relative">
@@ -224,17 +220,17 @@ export function BuyStockModal({ open, onClose, cashBalance, onConfirm }: Props) 
           </div>
           {err && <p className="col-span-2 text-xs text-loss">{err}</p>}
         </div>
-        <DialogFooter>
-          <Button variant="ghost" onClick={onClose} disabled={submitting}>Cancel</Button>
+        <div className="col-span-2 flex gap-2 pt-2">
+          <Button variant="ghost" className="flex-1" onClick={onClose} disabled={submitting}>Cancel</Button>
           <Button
+            className="flex-1 bg-gain text-primary-foreground hover:bg-gain/90"
             onClick={handle}
             disabled={!verified || verifying || submitting}
-            className="bg-gain text-primary-foreground hover:bg-gain/90"
           >
             {submitting ? <><Loader2 className="mr-1 h-4 w-4 animate-spin" /> Buying…</> : "Buy"}
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </div>
+        </div>
+    </MobileSheet>
   );
 }
