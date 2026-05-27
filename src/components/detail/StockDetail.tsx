@@ -4,12 +4,12 @@ import { useStockQuote } from "@/hooks/useStockQuote";
 import { usePortfolioState } from "@/hooks/usePortfolio";
 import { useWatchlist } from "@/hooks/useWatchlist";
 import { useStockNews } from "@/hooks/useStockNews";
-import { useTheme } from "@/hooks/useTheme";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { BuyStockModal } from "@/components/modals/BuyStockModal";
 import { StatCard } from "./StatCard";
+import { StockChart } from "./StockChart";
 import { formatINR, formatMarketCap, formatNumber, formatPct, formatChangePct } from "@/utils/formatters";
 import { changeColorClass, sectorBadgeClass } from "@/utils/colorHelpers";
 import { xirr } from "@/utils/finance";
@@ -18,62 +18,6 @@ import { useNavigate } from "@tanstack/react-router";
 interface Props {
   symbol: string;
   onBack: () => void;
-}
-
-function TradingViewChart({ symbol, theme }: { symbol: string; theme: string }) {
-  const [range, setRange] = useState("1D");
-  const ranges = ["1D", "1W", "1M", "3M", "1Y", "ALL"];
-  const intervalMap: Record<string, string> = {
-    "1D": "D", "1W": "W", "1M": "M", "3M": "3M", "1Y": "12M", "ALL": "60M",
-  };
-  const rangeMap: Record<string, string> = {
-    "1D": "1D", "1W": "5D", "1M": "1M", "3M": "3M", "1Y": "12M", "ALL": "60M",
-  };
-
-  const config = encodeURIComponent(JSON.stringify({
-    autosize: true,
-    symbol: `NSE:${symbol}`,
-    interval: intervalMap[range],
-    range: rangeMap[range],
-    timezone: "Asia/Kolkata",
-    theme: theme === "dark" ? "dark" : "light",
-    style: "1",
-    locale: "en",
-    hide_side_toolbar: false,
-    allow_symbol_change: false,
-    save_image: false,
-    calendar: false,
-  }));
-
-  return (
-    <div className="space-y-3">
-      <div className="flex gap-1.5">
-        {ranges.map((r) => (
-          <button
-            key={r}
-            onClick={() => setRange(r)}
-            className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
-              range === r
-                ? "bg-primary text-primary-foreground"
-                : "bg-muted text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            {r}
-          </button>
-        ))}
-      </div>
-      <div className="overflow-hidden rounded-xl border border-border" style={{ height: 360 }}>
-        <iframe
-          key={`${symbol}-${range}-${theme}`}
-          src={`https://s.tradingview.com/embed-widget/advanced-chart/?locale=en#${config}`}
-          className="h-full w-full border-0"
-          title={`${symbol} Chart`}
-          allowTransparency
-          allow="clipboard-write"
-        />
-      </div>
-    </div>
-  );
 }
 
 // FIX: was destructuring `news` but hook returns `data`
@@ -143,7 +87,7 @@ export function StockDetailPage({ symbol, onBack }: Props) {
   const { data, isLoading } = useStockQuote(symbol);
   const { portfolio, transactions, cashBalance, buy } = usePortfolioState();
   const { tickers, add, remove } = useWatchlist();
-  const { theme } = useTheme();
+
   const navigate = useNavigate();
   const [buyOpen, setBuyOpen] = useState(false);
   const [fundamentalsOpen, setFundamentalsOpen] = useState(false);
@@ -244,10 +188,10 @@ export function StockDetailPage({ symbol, onBack }: Props) {
           </div>
         ) : null}
 
-        {/* SECTION 2 — TradingView Chart */}
+        {/* SECTION 2 — Stock Chart */}
         <div className="space-y-2">
           <h2 className="text-[13px] font-medium text-muted-foreground uppercase tracking-wider">Chart</h2>
-          <TradingViewChart symbol={symbol} theme={theme} />
+          <StockChart symbol={symbol} currentPrice={data?.cmp} />
         </div>
 
         {/* SECTION 3 — Key Stats */}
