@@ -358,6 +358,8 @@ function DashboardPage() {
         confirmWord={pendingDelete ?? ""}
         confirmLabel="Delete holding"
       />
+
+      <BottomNav value={activeTab} onChange={setActiveTab} />
     </div>
   );
 }
