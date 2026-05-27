@@ -15,12 +15,18 @@ const PERIOD_MAP: Record<Period, string> = {
   "6M": "6mo", "1Y": "1y", "5Y": "5y",
 };
 
+// FIX: intraday periods (1D, 1W) use time labels; longer periods use date labels
 function formatXAxis(dateStr: string, period: Period): string {
   const d = new Date(dateStr);
-  if (period === "1D" || period === "1W") {
+  if (period === "1D") {
+    // Worker returns 1-minute bars for 1d — show HH:MM
+    return d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: false });
+  }
+  if (period === "1W") {
+    // 5-minute bars — show day + time
     return d.toLocaleDateString("en-IN", { day: "2-digit", month: "short" });
   }
-  if (period === "1M" || period === "3M") {
+  if (period === "1M" || period === "3M" || period === "6M") {
     return d.toLocaleDateString("en-IN", { day: "2-digit", month: "short" });
   }
   return d.toLocaleDateString("en-IN", { month: "short", year: "2-digit" });
@@ -34,14 +40,21 @@ interface CustomTooltipProps {
   active?: boolean;
   payload?: { value: number }[];
   label?: string;
+  period?: Period;
 }
 
-function CustomTooltip({ active, payload, label }: CustomTooltipProps) {
-  if (!active || !payload?.length) return null;
+function CustomTooltip({ active, payload, label, period }: CustomTooltipProps) {
+  if (!active || !payload?.length || !label) return null;
   const val = payload[0].value;
+  // For intraday show datetime, otherwise just date
+  const isIntraday = period === "1D" || period === "1W";
+  const d = new Date(label);
+  const displayLabel = isIntraday
+    ? d.toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", hour12: false })
+    : d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
   return (
     <div className="rounded-lg border border-border bg-card/95 px-3 py-2 shadow-lg backdrop-blur-sm text-xs">
-      <div className="text-muted-foreground mb-0.5">{label}</div>
+      <div className="text-muted-foreground mb-0.5">{displayLabel}</div>
       <div className="font-mono font-semibold text-foreground">{formatINR(val)}</div>
     </div>
   );
@@ -69,7 +82,6 @@ export function StockChart({ symbol, currentPrice }: Props) {
   const change = lastClose - firstClose;
   const changePct = firstClose > 0 ? (change / firstClose) * 100 : 0;
 
-  // Tick reduction for readability
   const tickCount = 6;
   const ticks = history && history.length > tickCount
     ? history
@@ -159,7 +171,7 @@ export function StockChart({ symbol, currentPrice }: Props) {
                 width={64}
                 tickCount={5}
               />
-              <Tooltip content={<CustomTooltip />} />
+              <Tooltip content={<CustomTooltip period={period} />} />
               {currentPrice && (
                 <ReferenceLine
                   y={currentPrice}
