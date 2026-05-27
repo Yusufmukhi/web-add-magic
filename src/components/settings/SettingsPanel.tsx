@@ -1,12 +1,17 @@
 import { useRef, useState } from "react";
 import { toast } from "sonner";
-import { Download, Upload, Trash2, ListX, AlertTriangle } from "lucide-react";
+import { Download, Upload, Trash2, ListX, AlertTriangle, Pencil, Check, X, Sun, Moon, Monitor } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { ConfirmDialog } from "@/components/modals/ConfirmDialog";
 import type { Holding, Transaction } from "@/types/portfolio.types";
 import { SoldStocksPanel } from "@/components/sold/SoldStocksPanel";
+import { useTheme } from "@/hooks/useTheme";
+import { useLocalStorage } from "@/hooks/useLocalStorage";
+import { formatINR } from "@/utils/formatters";
 
 export interface BackupShape {
   version: 1;
@@ -25,6 +30,8 @@ interface Props {
   onResetPortfolio: () => void;
   onClearWatchlist: () => void;
   onImportBackup: (data: BackupShape) => void;
+  onAddFunds?: (amount: number) => void;
+  onWithdraw?: (amount: number) => void;
 }
 
 export function SettingsPanel({
@@ -35,14 +42,25 @@ export function SettingsPanel({
   onResetPortfolio,
   onClearWatchlist,
   onImportBackup,
+  onAddFunds,
+  onWithdraw,
 }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
+  const { theme, setTheme } = useTheme();
   const [confirm, setConfirm] = useState<
     | null
     | { kind: "reset" }
     | { kind: "watchlist" }
     | { kind: "import"; data: BackupShape }
   >(null);
+
+  // Cash inline edit
+  const [editingCash, setEditingCash] = useState(false);
+  const [cashInput, setCashInput] = useState("");
+
+  // Broker info stored locally
+  const [brokerName, setBrokerName] = useLocalStorage<string>("broker_name", "");
+  const [dematAccount, setDematAccount] = useLocalStorage<string>("demat_account", "");
 
   const handleExport = () => {
     const data: BackupShape = {
@@ -88,8 +106,114 @@ export function SettingsPanel({
     }
   };
 
+  const handleCashSave = () => {
+    const amt = parseFloat(cashInput);
+    if (isNaN(amt) || amt < 0) { toast.error("Enter a valid amount"); return; }
+    const diff = amt - cashBalance;
+    if (diff > 0) onAddFunds?.(diff);
+    else if (diff < 0) onWithdraw?.(Math.abs(diff));
+    setEditingCash(false);
+    toast.success("Cash balance updated");
+  };
+
   return (
     <div className="space-y-6">
+      {/* Account: Cash Balance */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="font-display">Account</CardTitle>
+          <CardDescription>Manage your cash balance and broker details.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div>
+            <Label className="text-xs text-muted-foreground uppercase tracking-wider">Cash Balance</Label>
+            {editingCash ? (
+              <div className="mt-2 flex items-center gap-2">
+                <Input
+                  value={cashInput}
+                  onChange={(e) => setCashInput(e.target.value)}
+                  placeholder="Enter new balance"
+                  type="number"
+                  className="h-9 max-w-[200px]"
+                  autoFocus
+                  onKeyDown={(e) => e.key === "Enter" && handleCashSave()}
+                />
+                <Button size="icon" className="h-9 w-9" onClick={handleCashSave}><Check className="h-4 w-4" /></Button>
+                <Button size="icon" variant="ghost" className="h-9 w-9" onClick={() => setEditingCash(false)}><X className="h-4 w-4" /></Button>
+              </div>
+            ) : (
+              <div className="mt-2 flex items-center gap-3">
+                <span className="font-mono text-xl font-bold">{formatINR(cashBalance)}</span>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-7 w-7"
+                  onClick={() => { setCashInput(cashBalance.toFixed(2)); setEditingCash(true); }}
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            )}
+          </div>
+
+          <Separator />
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="broker-name" className="text-xs text-muted-foreground uppercase tracking-wider">Broker Name</Label>
+              <Input
+                id="broker-name"
+                value={brokerName}
+                onChange={(e) => setBrokerName(e.target.value)}
+                placeholder="e.g. Zerodha, Groww, Upstox"
+                className="h-9"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="demat-account" className="text-xs text-muted-foreground uppercase tracking-wider">Demat Account No.</Label>
+              <Input
+                id="demat-account"
+                value={dematAccount}
+                onChange={(e) => setDematAccount(e.target.value)}
+                placeholder="e.g. 1234567890"
+                className="h-9"
+              />
+            </div>
+          </div>
+          {brokerName && (
+            <p className="text-xs text-muted-foreground">Tracking via {brokerName}{dematAccount ? ` · ${dematAccount}` : ""}</p>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Theme Toggle */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="font-display">Appearance</CardTitle>
+          <CardDescription>Choose your preferred app theme.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setTheme("light")}
+              className={`flex flex-1 items-center justify-center gap-2 rounded-lg border py-2.5 text-sm font-medium transition-colors ${
+                theme === "light" ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <Sun className="h-4 w-4" /> Light
+            </button>
+            <button
+              onClick={() => setTheme("dark")}
+              className={`flex flex-1 items-center justify-center gap-2 rounded-lg border py-2.5 text-sm font-medium transition-colors ${
+                theme === "dark" ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <Moon className="h-4 w-4" /> Dark
+            </button>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Backup & Restore */}
       <Card>
         <CardHeader>
@@ -185,7 +309,7 @@ export function SettingsPanel({
         </CardContent>
       </Card>
 
-      {/* Confirm dialogs (type-to-confirm) */}
+      {/* Confirm dialogs */}
       <ConfirmDialog
         open={confirm?.kind === "reset"}
         onClose={() => setConfirm(null)}
