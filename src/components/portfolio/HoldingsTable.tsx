@@ -22,7 +22,7 @@ export function HoldingsTable({ rows, onSell, onEdit, onDelete }: Props) {
   // FIX: Always navigate to full holding detail page on both mobile and desktop
   // (previously desktop used inline panel with wrong props — broken)
   const handleRowClick = (ticker: string) => {
-    navigate({ to: "/holding/$symbol", params: { symbol: ticker } });
+    navigate({ to: "/holding/$symbol", params: { symbol: ticker }, search: { from: "portfolio" } });
   };
 
   if (rows.length === 0) {
