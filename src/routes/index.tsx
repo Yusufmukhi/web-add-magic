@@ -208,9 +208,12 @@ function DashboardPage() {
           />
         </section>
 
-        <Tabs defaultValue="portfolio" className="space-y-5">
-          <div className="sticky top-0 z-10 -mx-3 overflow-x-auto bg-background/95 px-3 py-1 backdrop-blur sm:-mx-6 sm:px-6">
+        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as NavTab)} className="space-y-5">
+          <div className="sticky top-0 z-10 -mx-3 hidden overflow-x-auto bg-background/95 px-3 py-1 backdrop-blur md:block sm:-mx-6 sm:px-6">
             <TabsList className="inline-flex h-auto w-max bg-card creative:shadow-soft minimal:rounded-none minimal:border-b minimal:border-border minimal:bg-transparent minimal:p-0">
+              <TabsTrigger value="home" className="gap-1.5 minimal:rounded-none minimal:border-b-2 minimal:border-transparent minimal:bg-transparent minimal:data-[state=active]:border-primary minimal:data-[state=active]:bg-transparent minimal:data-[state=active]:shadow-none">
+                <HomeIcon className="h-3.5 w-3.5" /> Home
+              </TabsTrigger>
               <TabsTrigger value="portfolio" className="gap-1.5 minimal:rounded-none minimal:border-b-2 minimal:border-transparent minimal:bg-transparent minimal:data-[state=active]:border-primary minimal:data-[state=active]:bg-transparent minimal:data-[state=active]:shadow-none">
                 <Briefcase className="h-3.5 w-3.5" /> Portfolio
               </TabsTrigger>
@@ -231,6 +234,21 @@ function DashboardPage() {
               </TabsTrigger>
             </TabsList>
           </div>
+
+          <TabsContent value="home">
+            <HomeDashboard
+              portfolio={portfolio}
+              portfolioQuotes={portfolioQuotes}
+              watchlistTickers={tickers}
+              cashBalance={cashBalance}
+              transactions={transactions}
+              onGoTo={(t) => setActiveTab(t)}
+              onAddStock={() => setActiveTab("watchlist")}
+              onBuy={() => setModal("buy")}
+              onAddFunds={() => setModal("add")}
+            />
+          </TabsContent>
+
 
           <TabsContent value="portfolio">
             <PortfolioPanel
