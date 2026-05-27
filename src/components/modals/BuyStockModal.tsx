@@ -122,83 +122,84 @@ export function BuyStockModal({ open, onClose, cashBalance, onConfirm }: Props) 
 
   return (
     <MobileSheet open={open} onClose={onClose} title="🟢 Buy Stock">
-        <div className="grid grid-cols-2 gap-3 py-2">
-          {/* Search field */}
-          <div ref={wrapRef} className="col-span-2 space-y-1.5 relative">
-            <Label htmlFor="b-search">Search by name or ticker (NSE / BSE)</Label>
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                id="b-search"
-                value={query}
-                onChange={(e) => { setQuery(e.target.value); if (picked) { setPicked(null); setVerified(null); setPrice(""); } }}
-                onFocus={() => results.length && !picked && setShowResults(true)}
-                onBlur={() => setTimeout(() => setShowResults(false), 150)}
-                placeholder="Enter Stock Name"
-                autoFocus
-                className="pl-10 pr-10"
-              />
-              {(searching || verifying) && (
-                <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />
-              )}
-            </div>
-
-            {showResults && results.length > 0 && (
-              <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-72 overflow-y-auto rounded-md border border-border bg-popover shadow-lg">
-                {results.map((r) => (
-                  <button
-                    key={r.symbol}
-                    type="button"
-                    onClick={() => handlePick(r)}
-                    className="flex w-full items-center justify-between gap-3 border-b border-border px-3 py-2 text-left text-sm transition-colors last:border-0 hover:bg-accent"
-                  >
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono font-semibold">
-                          {r.symbol?.replace(/\.(NS|BO)$/, "")}
-                        </span>
-                        <Badge variant={r.exchange === "NSE" ? "default" : "secondary"} className="h-4 px-1.5 text-[10px]">
-                          {r.exchange}
-                        </Badge>
-                      </div>
-                      <div className="truncate text-xs text-muted-foreground">
-                        {r.longname || r.shortname}
-                      </div>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )}
-            {showResults && !searching && results.length === 0 && debounced.length >= 2 && (
-              <p className="text-xs text-muted-foreground">No matches on NSE / BSE.</p>
-            )}
-
-            {picked && (
-              <div className="mt-1 flex items-start gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs">
-                {verifying ? (
-                  <Loader2 className="mt-0.5 h-3.5 w-3.5 animate-spin text-muted-foreground" />
-                ) : verified ? (
-                  <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 text-gain" />
-                ) : (
-                  <AlertCircle className="mt-0.5 h-3.5 w-3.5 text-loss" />
-                )}
-                <div className="flex-1">
-                  <div className="font-mono font-semibold">
-                    {picked.symbol} <span className="ml-1 text-[10px] text-muted-foreground">({picked.exchange})</span>
-                  </div>
-                  <div className="text-muted-foreground">
-                    {verifying ? "Verifying on Yahoo Finance…"
-                      : verified ? `${verified.name} · LTP ${formatINR(verified.cmp)}`
-                      : "Could not verify"}
-                  </div>
-                </div>
-                <button type="button" onClick={clearPick} className="text-xs text-muted-foreground hover:text-foreground">
-                  Change
-                </button>
-              </div>
+      <div className="space-y-3 py-2">
+        {/* Search field */}
+        <div ref={wrapRef} className="space-y-1.5 relative">
+          <Label htmlFor="b-search">Search by name or ticker (NSE / BSE)</Label>
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              id="b-search"
+              value={query}
+              onChange={(e) => { setQuery(e.target.value); if (picked) { setPicked(null); setVerified(null); setPrice(""); } }}
+              onFocus={() => results.length && !picked && setShowResults(true)}
+              onBlur={() => setTimeout(() => setShowResults(false), 150)}
+              placeholder="Enter Stock Name"
+              autoFocus
+              className="pl-10 pr-10"
+            />
+            {(searching || verifying) && (
+              <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />
             )}
           </div>
 
+          {showResults && results.length > 0 && (
+            <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-72 overflow-y-auto rounded-md border border-border bg-popover shadow-lg">
+              {results.map((r) => (
+                <button
+                  key={r.symbol}
+                  type="button"
+                  onClick={() => handlePick(r)}
+                  className="flex w-full items-center justify-between gap-3 border-b border-border px-3 py-2 text-left text-sm transition-colors last:border-0 hover:bg-accent"
+                >
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono font-semibold">
+                        {r.symbol?.replace(/\.(NS|BO)$/, "")}
+                      </span>
+                      <Badge variant={r.exchange === "NSE" ? "default" : "secondary"} className="h-4 px-1.5 text-[10px]">
+                        {r.exchange}
+                      </Badge>
+                    </div>
+                    <div className="truncate text-xs text-muted-foreground">
+                      {r.longname || r.shortname}
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+          {showResults && !searching && results.length === 0 && debounced.length >= 2 && (
+            <p className="text-xs text-muted-foreground">No matches on NSE / BSE.</p>
+          )}
+
+          {picked && (
+            <div className="mt-1 flex items-start gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs">
+              {verifying ? (
+                <Loader2 className="mt-0.5 h-3.5 w-3.5 animate-spin text-muted-foreground" />
+              ) : verified ? (
+                <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 text-gain" />
+              ) : (
+                <AlertCircle className="mt-0.5 h-3.5 w-3.5 text-loss" />
+              )}
+              <div className="flex-1">
+                <div className="font-mono font-semibold">
+                  {picked.symbol} <span className="ml-1 text-[10px] text-muted-foreground">({picked.exchange})</span>
+                </div>
+                <div className="text-muted-foreground">
+                  {verifying ? "Verifying on Yahoo Finance…"
+                    : verified ? `${verified.name} · LTP ${formatINR(verified.cmp)}`
+                    : "Could not verify"}
+                </div>
+              </div>
+              <button type="button" onClick={clearPick} className="text-xs text-muted-foreground hover:text-foreground">
+                Change
+              </button>
+            </div>
+          )}
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5">
             <Label htmlFor="b-pr">Price (₹)</Label>
             <Input id="b-pr" type="number" value={price} onChange={(e) => setPrice(e.target.value)} disabled={!picked} />
@@ -207,30 +208,33 @@ export function BuyStockModal({ open, onClose, cashBalance, onConfirm }: Props) 
             <Label htmlFor="b-qty">Quantity</Label>
             <Input id="b-qty" type="number" value={qty} onChange={(e) => setQty(e.target.value)} disabled={!picked} />
           </div>
-          <div className="col-span-2 space-y-1.5">
-            <Label htmlFor="b-dt">Buy Date</Label>
-            <Input id="b-dt" type="date" value={buyDate} onChange={(e) => setBuyDate(e.target.value)} />
-          </div>
-          <div className="col-span-2 flex justify-between rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm">
-            <span className="text-muted-foreground">Total</span>
-            <span className="font-mono font-semibold">{formatINR(total)}</span>
-          </div>
-          <div className="col-span-2 text-xs text-muted-foreground">
-            Cash available: <span className="font-mono">{formatINR(cashBalance)}</span>
-          </div>
-          {err && <p className="col-span-2 text-xs text-loss">{err}</p>}
         </div>
-          <div className="col-span-2 flex gap-2 pt-2">
-            <Button variant="ghost" className="flex-1" onClick={onClose} disabled={submitting}>Cancel</Button>
-            <Button
-              className="flex-1 bg-gain text-primary-foreground hover:bg-gain/90"
-              onClick={handle}
-              disabled={!verified || verifying || submitting}
-            >
-              {submitting ? <><Loader2 className="mr-1 h-4 w-4 animate-spin" /> Buying…</> : "Buy"}
-            </Button>
-          </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="b-dt">Buy Date</Label>
+          <Input id="b-dt" type="date" value={buyDate} onChange={(e) => setBuyDate(e.target.value)} />
         </div>
+
+        <div className="flex justify-between rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm">
+          <span className="text-muted-foreground">Total</span>
+          <span className="font-mono font-semibold">{formatINR(total)}</span>
+        </div>
+        <div className="text-xs text-muted-foreground">
+          Cash available: <span className="font-mono">{formatINR(cashBalance)}</span>
+        </div>
+        {err && <p className="text-xs text-loss">{err}</p>}
+
+        <div className="flex gap-2 pt-1">
+          <Button variant="ghost" className="flex-1" onClick={onClose} disabled={submitting}>Cancel</Button>
+          <Button
+            className="flex-1 bg-gain text-primary-foreground hover:bg-gain/90"
+            onClick={handle}
+            disabled={!verified || verifying || submitting}
+          >
+            {submitting ? <><Loader2 className="mr-1 h-4 w-4 animate-spin" /> Buying…</> : "Buy"}
+          </Button>
+        </div>
+      </div>
     </MobileSheet>
   );
 }
