@@ -28,9 +28,15 @@ import { usePortfolioState } from "@/hooks/usePortfolio";
 import { xirr } from "@/utils/finance";
 import type { Holding } from "@/types/portfolio.types";
 
-export const Route = createFileRoute("/")({ component: DashboardPage });
+export const Route = createFileRoute("/")({
+  validateSearch: (search: Record<string, unknown>) => ({
+    tab: (search.tab as string) ?? "watchlist",
+  }),
+  component: DashboardPage,
+});
 
 function DashboardPage() {
+  const { tab } = Route.useSearch();
   const { tickers, add, remove, clearAll: clearWatchlist, replaceAll: replaceWatchlist, hydrated } = useWatchlist();
   const results = useStockQuotes(tickers);
   const [selected, setSelected] = useState<string | null>(null);
@@ -45,7 +51,7 @@ function DashboardPage() {
   const [modal, setModal] = useState<"add" | "withdraw" | "buy" | "sell" | null>(null);
   const [sellPrefill, setSellPrefill] = useState<string | null>(null);
   const [portfolioPrices, setPortfolioPrices] = useState<Record<string, number>>({});
-  const [activeTab, setActiveTab] = useState<NavTab>("watchlist");
+  const [activeTab, setActiveTab] = useState<NavTab>(tab as NavTab ?? "watchlist");
 
   // Edit / delete state
   const [editing, setEditing] = useState<Holding | null>(null);
