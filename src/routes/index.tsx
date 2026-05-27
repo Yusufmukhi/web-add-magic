@@ -9,7 +9,7 @@ import { Navbar } from "@/components/layout/Navbar";
 import { OverviewStrip } from "@/components/layout/OverviewStrip";
 import { AddStockBar } from "@/components/watchlist/AddStockBar";
 import { WatchlistTable } from "@/components/watchlist/WatchlistTable";
-import { StockDetail } from "@/components/detail/StockDetail";
+import { StockDetailPage as StockDetail } from "@/components/detail/StockDetail";
 import { PortfolioPanel } from "@/components/portfolio/PortfolioPanel";
 import { TransactionsTable } from "@/components/transactions/TransactionsTable";
 import { AddFundsModal } from "@/components/modals/AddFundsModal";
