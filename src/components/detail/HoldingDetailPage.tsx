@@ -21,13 +21,28 @@ interface Props {
 }
 
 function TradingViewChartMini({ symbol, theme }: { symbol: string; theme: string }) {
+  const config = encodeURIComponent(JSON.stringify({
+    autosize: true,
+    symbol: `NSE:${symbol}`,
+    interval: "D",
+    timezone: "Asia/Kolkata",
+    theme: theme === "dark" ? "dark" : "light",
+    style: "1",
+    locale: "en",
+    hide_side_toolbar: true,
+    allow_symbol_change: false,
+    save_image: false,
+    calendar: false,
+  }));
   return (
-    <div className="overflow-hidden rounded-xl border border-border" style={{ height: 280 }}>
+    <div className="overflow-hidden rounded-xl border border-border" style={{ height: 300 }}>
       <iframe
-        src={`https://s.tradingview.com/widgetembed/?frameElementId=tv_mini&symbol=NSE%3A${symbol}&interval=D&hidesidetoolbar=1&hidetoptoolbar=0&theme=${theme === "dark" ? "dark" : "light"}&style=1&timezone=Asia%2FKolkata&withdateranges=0&showpopupbutton=0&locale=en`}
+        key={`${symbol}-${theme}`}
+        src={`https://s.tradingview.com/embed-widget/advanced-chart/?locale=en#${config}`}
         className="h-full w-full border-0"
-        title={`${symbol} Mini Chart`}
+        title={`${symbol} Chart`}
         allowTransparency
+        allow="clipboard-write"
       />
     </div>
   );
