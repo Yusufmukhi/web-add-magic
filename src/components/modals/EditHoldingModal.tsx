@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { MobileSheet } from "./MobileSheet";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -59,13 +59,7 @@ export function EditHoldingModal({ open, onClose, holding, onConfirm }: Props) {
 
   return (
     <>
-      <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="font-display">
-              ✏️ Edit {holding.ticker}
-            </DialogTitle>
-          </DialogHeader>
+      <MobileSheet open={open} onClose={onClose} title={`✏️ Edit ${holding.ticker}`}>
           <div className="grid grid-cols-2 gap-3 py-2">
             <div className="space-y-1.5">
               <Label htmlFor="e-qty">Quantity</Label>
@@ -99,13 +93,12 @@ export function EditHoldingModal({ open, onClose, holding, onConfirm }: Props) {
               or change your cash balance.
             </p>
             {err && <p className="col-span-2 text-xs text-loss">{err}</p>}
+            <div className="col-span-2 flex gap-2 pt-2">
+              <Button variant="ghost" className="flex-1" onClick={onClose}>Cancel</Button>
+              <Button className="flex-1" onClick={handleAttemptSave}>Save changes</Button>
+            </div>
           </div>
-          <DialogFooter>
-            <Button variant="ghost" onClick={onClose}>Cancel</Button>
-            <Button onClick={handleAttemptSave}>Save changes</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      </MobileSheet>
 
       <ConfirmDialog
         open={confirmOpen}
