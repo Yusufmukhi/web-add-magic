@@ -7,7 +7,7 @@ import { HoldingsTable } from "./HoldingsTable";
 import { AllocationDonut } from "./AllocationDonut";
 import { PortfolioActions } from "./PortfolioActions";
 import { PortfolioValueChart } from "./PortfolioValueChart";
-import { StockDetail } from "@/components/detail/StockDetail";
+import { StockDetailPage as StockDetail } from "@/components/detail/StockDetail";
 import { downloadExcel, parseHoldingsExcel, toSerial, S, n, t, empty, NCOLS } from "@/utils/excel";
 import type { CellDef } from "@/utils/excel";
 import { xirr } from "@/utils/finance";
