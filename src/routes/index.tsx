@@ -45,7 +45,7 @@ function DashboardPage() {
   const [modal, setModal] = useState<"add" | "withdraw" | "buy" | "sell" | null>(null);
   const [sellPrefill, setSellPrefill] = useState<string | null>(null);
   const [portfolioPrices, setPortfolioPrices] = useState<Record<string, number>>({});
-  const [activeTab, setActiveTab] = useState<NavTab>("home");
+  const [activeTab, setActiveTab] = useState<NavTab>("watchlist");
 
   // Edit / delete state
   const [editing, setEditing] = useState<Holding | null>(null);
@@ -310,6 +310,8 @@ function DashboardPage() {
               onResetPortfolio={resetPortfolio}
               onClearWatchlist={clearWatchlist}
               onImportBackup={handleImportBackup}
+              onAddFunds={(amt) => { addFunds(amt); }}
+              onWithdraw={(amt) => { withdrawFunds(amt); }}
             />
           </TabsContent>
         </Tabs>
