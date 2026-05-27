@@ -93,7 +93,7 @@ export function HoldingDetailPage({ symbol, onBack }: Props) {
   }, [data, symbol]);
 
   return (
-    <div className="min-h-screen pb-24 bg-background">
+    <div className="min-h-screen pb-24 bg-background page-enter">
       {/* Header */}
       <div className="sticky top-0 z-40 border-b border-border bg-background/95 backdrop-blur-xl px-4 py-3 flex items-center gap-3">
         <button
