@@ -1,8 +1,10 @@
 import { useCallback, useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { toast } from "sonner";
-import { Briefcase, LineChart, ListChecks, Receipt, CalendarRange, Settings as SettingsIcon } from "lucide-react";
+import { Home as HomeIcon, Briefcase, LineChart, ListChecks, Receipt, CalendarRange, Settings as SettingsIcon } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { BottomNav, type NavTab } from "@/components/layout/BottomNav";
+import { HomeDashboard } from "@/components/home/HomeDashboard";
 import { Navbar } from "@/components/layout/Navbar";
 import { OverviewStrip } from "@/components/layout/OverviewStrip";
 import { AddStockBar } from "@/components/watchlist/AddStockBar";
