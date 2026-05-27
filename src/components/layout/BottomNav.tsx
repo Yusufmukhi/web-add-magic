@@ -1,7 +1,7 @@
 import { Home, ListChecks, Briefcase, LineChart, Receipt, Settings as SettingsIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-export type NavTab = "home" | "watchlist" | "portfolio" | "analytics" | "transactions" | "settings";
+export type NavTab = "home" | "watchlist" | "portfolio" | "analytics" | "transactions" | "settings" | "planning";
 
 const TABS: { id: NavTab; label: string; icon: typeof Home }[] = [
   { id: "home", label: "Home", icon: Home },
