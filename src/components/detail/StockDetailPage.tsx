@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { ArrowLeft, Heart, TrendingUp, TrendingDown, ExternalLink, ChevronDown, ChevronUp } from "lucide-react";
 import { useStockQuote } from "@/hooks/useStockQuote";
 import { usePortfolioState } from "@/hooks/usePortfolio";
@@ -21,6 +21,11 @@ interface Props {
 
 function TradingViewChart({ symbol, theme }: { symbol: string; theme: string }) {
   const [range, setRange] = useState("1D");
+  // FIX: track iframe loading and error states so we can show feedback
+  const [iframeLoaded, setIframeLoaded] = useState(false);
+  const [iframeError, setIframeError] = useState(false);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+
   const ranges = ["1D", "1W", "1M", "3M", "1Y", "ALL"];
   const intervalMap: Record<string, string> = {
     "1D": "D", "1W": "W", "1M": "M", "3M": "3M", "1Y": "12M", "ALL": "60M",
@@ -28,6 +33,20 @@ function TradingViewChart({ symbol, theme }: { symbol: string; theme: string }) 
   const rangeMap: Record<string, string> = {
     "1D": "1D", "1W": "5D", "1M": "1M", "3M": "3M", "1Y": "12M", "ALL": "60M",
   };
+
+  // Reset states whenever key (symbol/range/theme) changes
+  const iframeKey = `${symbol}-${range}-${theme}`;
+  useEffect(() => {
+    setIframeLoaded(false);
+    setIframeError(false);
+  }, [iframeKey]);
+
+  // Fallback: if iframe hasn't fired onLoad within 10s, assume blocked/failed
+  useEffect(() => {
+    if (iframeLoaded || iframeError) return;
+    const t = setTimeout(() => setIframeError(true), 10_000);
+    return () => clearTimeout(t);
+  }, [iframeKey, iframeLoaded, iframeError]);
 
   const config = encodeURIComponent(JSON.stringify({
     autosize: true,
@@ -61,14 +80,39 @@ function TradingViewChart({ symbol, theme }: { symbol: string; theme: string }) 
           </button>
         ))}
       </div>
-      <div className="overflow-hidden rounded-xl border border-border" style={{ height: 360 }}>
+      <div className="relative overflow-hidden rounded-xl border border-border" style={{ height: 360 }}>
+        {/* Loading skeleton shown until iframe fires onLoad */}
+        {!iframeLoaded && !iframeError && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-card z-10">
+            <Skeleton className="h-4 w-32" />
+            <Skeleton className="h-48 w-full mx-6" />
+            <Skeleton className="h-3 w-24" />
+          </div>
+        )}
+        {/* Error fallback when TradingView is unreachable */}
+        {iframeError && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-card z-10 text-center px-4">
+            <p className="text-sm text-muted-foreground">Chart unavailable</p>
+            <a
+              href={`https://finance.yahoo.com/chart/${symbol}.NS`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-primary hover:underline font-medium flex items-center gap-1"
+            >
+              <ExternalLink className="h-3 w-3" /> Open on Yahoo Finance
+            </a>
+          </div>
+        )}
         <iframe
-          key={`${symbol}-${range}-${theme}`}
+          ref={iframeRef}
+          key={iframeKey}
           src={`https://s.tradingview.com/embed-widget/advanced-chart/?locale=en#${config}`}
           className="h-full w-full border-0"
           title={`${symbol} Chart`}
           allowTransparency
           allow="clipboard-write"
+          onLoad={() => { setIframeLoaded(true); setIframeError(false); }}
+          onError={() => setIframeError(true)}
         />
       </div>
     </div>
