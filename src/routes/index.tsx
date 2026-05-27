@@ -188,7 +188,7 @@ function DashboardPage() {
   const portfolioValue = current + cashBalance;
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen pb-20 md:pb-0">
       <Navbar rightSlot={<PriceAlertsButton quotes={alertsQuotes} />} />
       <main className="mx-auto max-w-7xl space-y-5 px-3 py-4 sm:px-6 sm:py-6">
         <section className="space-y-3">
