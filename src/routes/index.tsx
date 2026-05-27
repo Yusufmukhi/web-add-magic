@@ -45,6 +45,7 @@ function DashboardPage() {
   const [modal, setModal] = useState<"add" | "withdraw" | "buy" | "sell" | null>(null);
   const [sellPrefill, setSellPrefill] = useState<string | null>(null);
   const [portfolioPrices, setPortfolioPrices] = useState<Record<string, number>>({});
+  const [activeTab, setActiveTab] = useState<NavTab>("home");
 
   // Edit / delete state
   const [editing, setEditing] = useState<Holding | null>(null);
