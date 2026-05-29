@@ -153,7 +153,7 @@ export function BuyStockModal({ open, onClose, cashBalance, onConfirm }: Props) 
               <span className="font-mono">{formatINR(chargesNum)}/sh</span>
             </div>
             <div className="flex justify-between text-xs font-semibold">
-              <span>Avg Buy Price</span>
+              <span>Avg Traded Price (incl. charges)</span>
               <span className="font-mono">{formatINR(avgBuyPrice)}/sh</span>
             </div>
           </div>
@@ -351,7 +351,7 @@ export function BuyStockModal({ open, onClose, cashBalance, onConfirm }: Props) 
                   <span className="font-mono">{formatINR(chargesNum)}/sh</span>
                 </div>
                 <div className="flex items-center justify-between text-xs font-semibold">
-                  <span>Avg Buy Price</span>
+                  <span>Avg Traded Price (incl. charges)</span>
                   <span className="font-mono">{formatINR(avgBuyPrice)}/sh</span>
                 </div>
               </>
