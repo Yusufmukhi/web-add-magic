@@ -12,50 +12,124 @@ interface Props {
   transactions: Transaction[];
 }
 
-/** Sold-stocks history (every SELL transaction with realized P&L). */
+/**
+ * Expand each SELL transaction into per-FIFO-lot rows — exactly like Angel One's
+ * "Trade Overview" which shows one row per consumed buy lot.
+ */
+interface TradeRow {
+  txId: string;
+  stock: string;
+  sellDate: string;
+  sellPrice: number;
+  buyDate: string;
+  buyPrice: number;
+  qty: number;
+  /** Gross P&L for this lot slice (before charges). */
+  grossProfit: number;
+  /** Net P&L for this lot slice (after pro-rated charges). */
+  netProfit: number;
+  holdingDays: number;
+  taxType: "LTCG" | "STCG";
+  charges: number; // pro-rated charges for this slice
+}
+
 export function SoldStocksPanel({ transactions }: Props) {
   const sells = useMemo(
     () =>
       transactions
-        .filter((t) => t.action === "SELL")
+        .filter((tx) => tx.action === "SELL")
         .sort((a, b) => Date.parse(b.date) - Date.parse(a.date)),
     [transactions]
   );
 
-  const totals = useMemo(() => {
-    let realized = 0;
-    let proceeds = 0;
-    let cost = 0;
-    let charges = 0;
+  /**
+   * Expand sells into per-lot trade rows.
+   * If fifoLots breakdown is stored on the tx, use it.
+   * Otherwise fall back to one row per sell (legacy data).
+   */
+  const tradeRows = useMemo<TradeRow[]>(() => {
+    const rows: TradeRow[] = [];
     for (const tx of sells) {
-      const p = tx.meta?.profit ?? 0;
-      const c = tx.meta?.charges ?? 0;
-      realized += p + c; // gross profit
-      charges += c;
-      proceeds += tx.amount;
-      cost += tx.amount - p;
+      const fifoLots = tx.meta?.fifoLots;
+      const totalQty = tx.qty ?? 0;
+      const sellPrice = tx.price ?? 0;
+      const totalCharges = tx.meta?.charges ?? 0;
+
+      if (fifoLots && fifoLots.length > 0) {
+        // One row per FIFO lot consumed (Angel One style)
+        for (const lot of fifoLots) {
+          // lot.lotProfit is already net (charges pro-rated in fifo.ts)
+          const proRatedCharges = totalQty > 0 ? (lot.qtySold / totalQty) * totalCharges : 0;
+          const lotGross = lot.lotProfit + proRatedCharges; // reverse to get gross
+          rows.push({
+            txId: tx.id + "-" + lot.lotId,
+            stock: tx.stock ?? "",
+            sellDate: tx.date,
+            sellPrice,
+            buyDate: lot.lotDate,
+            buyPrice: lot.lotPrice,
+            qty: lot.qtySold,
+            grossProfit: lotGross,
+            netProfit: lot.lotProfit,
+            holdingDays: lot.holdingDays,
+            taxType: lot.taxType,
+            charges: proRatedCharges,
+          });
+        }
+      } else {
+        // Legacy: single row per sell, use stored gross/net
+        const netP = tx.meta?.profit ?? 0;
+        const grossP = tx.meta?.grossProfit ?? netP + totalCharges;
+        rows.push({
+          txId: tx.id,
+          stock: tx.stock ?? "",
+          sellDate: tx.date,
+          sellPrice,
+          buyDate: tx.meta?.buyDate ?? "",
+          buyPrice: tx.meta?.avgCost ?? 0,
+          qty: totalQty,
+          grossProfit: grossP,
+          netProfit: netP,
+          holdingDays: tx.meta?.holdingDays ?? 0,
+          taxType: (tx.meta?.type as "LTCG" | "STCG") ?? "STCG",
+          charges: totalCharges,
+        });
+      }
     }
-    const grossProfit = realized;
-    const netProfit = grossProfit - charges;
-    return { grossProfit, netProfit, proceeds, cost, charges };
+    return rows;
+  }, [sells]);
+
+  const totals = useMemo(() => {
+    let grossProfit = 0;
+    let charges = 0;
+    let proceeds = 0;
+    for (const tx of sells) {
+      const net = tx.meta?.profit ?? 0;
+      const ch = tx.meta?.charges ?? 0;
+      const gross = tx.meta?.grossProfit ?? net + ch;
+      grossProfit += gross;
+      charges += ch;
+      proceeds += tx.amount;
+    }
+    return { grossProfit, charges, netProfit: grossProfit - charges, proceeds };
   }, [sells]);
 
   const exportCSV = () => {
     downloadCSV(
       [
-        ["Sell Date", "Buy Date", "Stock", "Qty", "Buy ₹", "Sell ₹", "Proceeds", "Profit", "P/L %", "Days", "Type"],
-        ...sells.map((t) => [
-          t.date,
-          t.meta?.buyDate ?? "",
-          t.stock ?? "",
-          t.qty ?? "",
-          t.meta?.avgCost ?? "",
-          t.price ?? "",
-          t.amount,
-          t.meta?.profit ?? "",
-          t.meta?.profitPct ?? "",
-          t.meta?.holdingDays ?? "",
-          t.meta?.type ?? "",
+        ["Sell Date", "Buy Date", "Stock", "Qty", "Buy ₹", "Sell ₹", "Gross P&L", "Charges", "Net P&L", "Days", "Type"],
+        ...tradeRows.map((r) => [
+          r.sellDate,
+          r.buyDate,
+          r.stock,
+          r.qty,
+          r.buyPrice,
+          r.sellPrice,
+          r.grossProfit.toFixed(2),
+          r.charges.toFixed(2),
+          r.netProfit.toFixed(2),
+          r.holdingDays,
+          r.taxType,
         ]),
       ],
       `sold-stocks-${new Date().toISOString().slice(0, 10)}.csv`
@@ -70,55 +144,44 @@ export function SoldStocksPanel({ transactions }: Props) {
       t("Qty", S.COL_HEADER),
       t("Buy ₹", S.COL_HEADER),
       t("Sell ₹", S.COL_HEADER),
-      t("Gross", S.COL_HEADER),
+      t("Gross P&L", S.COL_HEADER),
       t("Charges", S.COL_HEADER),
-      t("Net Proceeds", S.COL_HEADER),
-      t("Profit", S.COL_HEADER),
-      t("P/L %", S.COL_HEADER),
+      t("Net P&L", S.COL_HEADER),
       t("Days", S.COL_HEADER),
       t("Type", S.COL_HEADER),
     ];
-    const dataRows = sells.map((tx, i): (CellDef | null)[] => {
+    const dataRows = tradeRows.map((r, i): (CellDef | null)[] => {
       const alt = i % 2 === 1;
       const dateS = alt ? S.SELL_DATE_B : S.SELL_DATE;
       const textS = alt ? S.SELL_TEXT_B : S.SELL_TEXT;
       const inrS = alt ? S.SELL_INR_B : S.SELL_INR;
       const daysS = S.SELL_DAYS;
-      const profit = tx.meta?.profit ?? 0;
-      const profitS = profit >= 0 ? S.SELL_PROFIT_G : S.SELL_PROFIT_R;
-      const typeS = (tx.meta?.type === "LTCG") ? S.SELL_LTCG : S.SELL_STCG;
+      const profitS = r.netProfit >= 0 ? S.SELL_PROFIT_G : S.SELL_PROFIT_R;
+      const typeS = r.taxType === "LTCG" ? S.SELL_LTCG : S.SELL_STCG;
       return [
-        n(toSerial(tx.date), dateS),
-        n(toSerial(tx.meta?.buyDate ?? null), dateS),
-        t(tx.stock ?? "", textS),
-        n(tx.qty ?? 0, daysS),
-        n(tx.meta?.avgCost ?? null, inrS),
-        n(tx.price ?? null, inrS),
-        n(tx.meta?.grossAmount ?? tx.amount, inrS),
-        n(tx.meta?.charges ?? 0, inrS),
-        n(tx.amount, inrS),
-        n(profit, profitS),
-        n(tx.meta?.profitPct != null ? tx.meta.profitPct / 100 : null, inrS),
-        n(tx.meta?.holdingDays ?? null, daysS),
-        t(tx.meta?.type ?? "", typeS),
+        n(toSerial(r.sellDate), dateS),
+        n(toSerial(r.buyDate), dateS),
+        t(r.stock, textS),
+        n(r.qty, daysS),
+        n(r.buyPrice, inrS),
+        n(r.sellPrice, inrS),
+        n(r.grossProfit, profitS),
+        n(r.charges, inrS),
+        n(r.netProfit, profitS),
+        n(r.holdingDays, daysS),
+        t(r.taxType, typeS),
       ];
     });
     const totalRow: (CellDef | null)[] = [
       t("TOTAL", S.TOTAL_LABEL),
-      empty(S.TOTAL_EMPTY),
-      empty(S.TOTAL_EMPTY),
-      empty(S.TOTAL_EMPTY),
-      empty(S.TOTAL_EMPTY),
-      empty(S.TOTAL_EMPTY),
-      empty(S.TOTAL_EMPTY),
-      empty(S.TOTAL_EMPTY),
-      n(totals.proceeds, S.TOTAL_INR),
+      empty(S.TOTAL_EMPTY), empty(S.TOTAL_EMPTY), empty(S.TOTAL_EMPTY),
+      empty(S.TOTAL_EMPTY), empty(S.TOTAL_EMPTY),
+      n(totals.grossProfit, S.TOTAL_INR),
+      n(totals.charges, S.TOTAL_INR),
       n(totals.netProfit, S.TOTAL_INR),
-      empty(S.TOTAL_EMPTY),
-      empty(S.TOTAL_EMPTY),
-      empty(S.TOTAL_EMPTY),
+      empty(S.TOTAL_EMPTY), empty(S.TOTAL_EMPTY),
     ];
-    const widths = [12, 12, 14, 8, 12, 12, 14, 12, 14, 14, 10, 8, 8];
+    const widths = [12, 12, 14, 8, 12, 12, 14, 12, 14, 8, 8];
     downloadExcel(
       [headers, ...dataRows, totalRow],
       widths,
@@ -153,27 +216,27 @@ export function SoldStocksPanel({ transactions }: Props) {
         </div>
       </div>
 
-      {/* ── Stat chips row ── */}
+      {/* ── Stat chips ── */}
       <div className="grid gap-3 sm:grid-cols-3">
         <Stat label="Total Proceeds" value={formatINR(totals.proceeds)} />
-        <Stat label="Total Cost" value={formatINR(totals.cost)} />
+        <Stat label="Gross P&L" value={`${totals.grossProfit >= 0 ? "+" : ""}${formatINR(totals.grossProfit)}`} tone={totals.grossProfit >= 0 ? "gain" : "loss"} />
         <Stat label="Total Charges" value={formatINR(totals.charges)} />
       </div>
 
-      {/* ── Header + export buttons ── */}
+      {/* ── Header + export ── */}
       <div className="flex items-center justify-between">
         <h3 className="font-display text-lg font-semibold">Trade Overview</h3>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={exportCSV} className="gap-2 minimal:rounded-none">
             <Download className="h-3.5 w-3.5" /> CSV
           </Button>
-          <Button variant="outline" size="sm" onClick={exportExcel} disabled={sells.length === 0} className="gap-2 minimal:rounded-none">
+          <Button variant="outline" size="sm" onClick={exportExcel} disabled={tradeRows.length === 0} className="gap-2 minimal:rounded-none">
             <FileSpreadsheet className="h-3.5 w-3.5" /> Excel
           </Button>
         </div>
       </div>
 
-      {/* ── Trade Overview table (Angel One style) ── */}
+      {/* ── Trade Overview — one row per FIFO lot (Angel One style) ── */}
       <div className="overflow-x-auto rounded-2xl border border-border bg-card creative:shadow-soft minimal:rounded-none minimal:border-x-0 minimal:bg-transparent">
         <table className="w-full text-sm">
           <thead>
@@ -188,71 +251,81 @@ export function SoldStocksPanel({ transactions }: Props) {
               </th>
               <th className="px-3 py-2.5 text-right font-medium">Qty</th>
               <th className="px-3 py-2.5 text-right font-medium">Stock</th>
-              <th className="px-3 py-2.5 text-right font-medium">P&amp;L</th>
-              <th className="hidden px-3 py-2.5 text-right font-medium md:table-cell">P/L %</th>
+              <th className="px-3 py-2.5 text-right font-medium">Gross P&amp;L</th>
+              <th className="hidden px-3 py-2.5 text-right font-medium md:table-cell">Charges</th>
+              <th className="px-3 py-2.5 text-right font-medium">Net P&amp;L</th>
               <th className="hidden px-3 py-2.5 text-right font-medium md:table-cell">Days</th>
-              <th className="hidden px-3 py-2.5 font-medium md:table-cell">Type</th>
+              <th className="hidden px-3 py-2.5 font-medium md:table-cell">Tax</th>
             </tr>
           </thead>
           <tbody>
-            {sells.length === 0 ? (
-              <tr><td colSpan={8} className="px-3 py-10 text-center text-muted-foreground">No sold stocks yet.</td></tr>
-            ) : sells.map((tx) => {
-              const profit = tx.meta?.profit ?? 0;
-              const tone = profit >= 0 ? "text-gain" : "text-loss";
-              return (
-                <tr key={tx.id} className="border-b border-border hover:bg-accent/30">
-                  {/* Sell price + date (stacked like Angel One) */}
-                  <td className="px-3 py-2.5">
-                    <div className="font-mono font-semibold">{tx.price != null ? formatINR(tx.price) : "—"}</div>
-                    <div className="text-[11px] text-muted-foreground font-mono mt-0.5">{tx.date}</div>
-                  </td>
-                  {/* Buy price + date stacked */}
-                  <td className="px-3 py-2.5">
-                    <div className="font-mono font-semibold">
-                      {tx.meta?.avgCost != null ? formatINR(tx.meta.avgCost) : "—"}
-                    </div>
-                    <div className="text-[11px] text-muted-foreground font-mono mt-0.5">
-                      {tx.meta?.buyDate ?? "—"}
-                    </div>
-                  </td>
-                  <td className="px-3 py-2.5 text-right font-mono">{tx.qty}</td>
-                  <td className="px-3 py-2.5 text-right font-mono font-semibold">{tx.stock}</td>
-                  <td className={`px-3 py-2.5 text-right font-mono font-semibold ${tone}`}>
-                    {profit >= 0 ? "+" : ""}₹{formatNumber(profit, 2)}
-                  </td>
-                  <td className={`hidden px-3 py-2.5 text-right font-mono md:table-cell ${tone}`}>
-                    {tx.meta?.profitPct != null ? `${tx.meta.profitPct >= 0 ? "+" : ""}${formatNumber(tx.meta.profitPct, 2)}%` : "—"}
-                  </td>
-                  <td className="hidden px-3 py-2.5 text-right font-mono text-xs text-muted-foreground md:table-cell">
-                    {tx.meta?.holdingDays != null ? `${tx.meta.holdingDays}d` : "—"}
-                  </td>
-                  <td className="hidden px-3 py-2.5 md:table-cell">
-                    {tx.meta?.type && (
+            {tradeRows.length === 0 ? (
+              <tr>
+                <td colSpan={9} className="px-3 py-10 text-center text-muted-foreground">
+                  No sold stocks yet.
+                </td>
+              </tr>
+            ) : (
+              tradeRows.map((r) => {
+                const grossTone = r.grossProfit >= 0 ? "text-gain" : "text-loss";
+                const netTone = r.netProfit >= 0 ? "text-gain" : "text-loss";
+                return (
+                  <tr key={r.txId} className="border-b border-border hover:bg-accent/30">
+                    {/* Sell price + date (stacked) */}
+                    <td className="px-3 py-2.5">
+                      <div className="font-mono font-semibold">{formatINR(r.sellPrice)}</div>
+                      <div className="text-[11px] text-muted-foreground font-mono mt-0.5">{r.sellDate}</div>
+                    </td>
+                    {/* Buy price + date (stacked) */}
+                    <td className="px-3 py-2.5">
+                      <div className="font-mono font-semibold">{r.buyPrice ? formatINR(r.buyPrice) : "—"}</div>
+                      <div className="text-[11px] text-muted-foreground font-mono mt-0.5">{r.buyDate || "—"}</div>
+                    </td>
+                    <td className="px-3 py-2.5 text-right font-mono">{r.qty}</td>
+                    <td className="px-3 py-2.5 text-right font-mono font-semibold">{r.stock}</td>
+                    <td className={`px-3 py-2.5 text-right font-mono ${grossTone}`}>
+                      {r.grossProfit >= 0 ? "+" : ""}₹{formatNumber(r.grossProfit, 2)}
+                    </td>
+                    <td className="hidden px-3 py-2.5 text-right font-mono text-muted-foreground md:table-cell">
+                      ₹{formatNumber(r.charges, 2)}
+                    </td>
+                    <td className={`px-3 py-2.5 text-right font-mono font-semibold ${netTone}`}>
+                      {r.netProfit >= 0 ? "+" : ""}₹{formatNumber(r.netProfit, 2)}
+                    </td>
+                    <td className="hidden px-3 py-2.5 text-right font-mono text-xs text-muted-foreground md:table-cell">
+                      {r.holdingDays}d
+                    </td>
+                    <td className="hidden px-3 py-2.5 md:table-cell">
                       <Badge
                         variant="outline"
                         className={`text-[10px] px-1.5 ${
-                          tx.meta.type === "LTCG"
+                          r.taxType === "LTCG"
                             ? "border-gain text-gain"
                             : "border-amber-500 text-amber-500"
                         }`}
                       >
-                        {tx.meta.type}
+                        {r.taxType}
                       </Badge>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
+                    </td>
+                  </tr>
+                );
+              })
+            )}
           </tbody>
-          {sells.length > 0 && (
+          {tradeRows.length > 0 && (
             <tfoot>
               <tr className="border-t border-border bg-muted/30 text-xs font-semibold">
                 <td colSpan={4} className="px-3 py-2 text-muted-foreground">Total</td>
+                <td className={`px-3 py-2 text-right font-mono ${totals.grossProfit >= 0 ? "text-gain" : "text-loss"}`}>
+                  {totals.grossProfit >= 0 ? "+" : ""}₹{formatNumber(totals.grossProfit, 2)}
+                </td>
+                <td className="hidden px-3 py-2 text-right font-mono text-muted-foreground md:table-cell">
+                  ₹{formatNumber(totals.charges, 2)}
+                </td>
                 <td className={`px-3 py-2 text-right font-mono ${totals.netProfit >= 0 ? "text-gain" : "text-loss"}`}>
                   {totals.netProfit >= 0 ? "+" : ""}₹{formatNumber(totals.netProfit, 2)}
                 </td>
-                <td colSpan={3} />
+                <td colSpan={2} />
               </tr>
             </tfoot>
           )}
