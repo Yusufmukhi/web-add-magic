@@ -104,10 +104,30 @@ function SellDetailView({
           <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1">Total Sell Value</div>
           <div className="font-mono font-semibold">{formatINR(totalSellValue)}</div>
         </div>
-        <div className="rounded-xl border border-border bg-card p-3">
-          <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1">Avg Buy Price</div>
-          <div className="font-mono font-semibold">
-            {totalQty > 0 ? formatINR(totalBuyValue / totalQty) : "—"}
+        <div className="rounded-xl border border-border bg-card p-3 col-span-2">
+          <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-2">Buy Price Breakdown</div>
+          <div className="space-y-1 text-sm">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Avg Trading Price</span>
+              <span className="font-mono">
+                {totalQty > 0
+                  ? formatINR((tx.meta?.tradingPrice ?? (totalBuyValue / totalQty)))
+                  : "—"}/sh
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Charges/share</span>
+              <span className="font-mono">
+                {formatINR(tx.meta?.chargesPerShare ?? 0)}/sh
+              </span>
+            </div>
+            <div className="h-px bg-border" />
+            <div className="flex justify-between font-semibold">
+              <span>Avg Buy Price</span>
+              <span className="font-mono">
+                {totalQty > 0 ? formatINR(totalBuyValue / totalQty) : "—"}/sh
+              </span>
+            </div>
           </div>
         </div>
         <div className="rounded-xl border border-border bg-card p-3">
