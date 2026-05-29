@@ -26,13 +26,18 @@ export function SoldStocksPanel({ transactions }: Props) {
     let realized = 0;
     let proceeds = 0;
     let cost = 0;
-    for (const t of sells) {
-      const p = t.meta?.profit ?? 0;
-      realized += p;
-      proceeds += t.amount;
-      cost += t.amount - p;
+    let charges = 0;
+    for (const tx of sells) {
+      const p = tx.meta?.profit ?? 0;
+      const c = tx.meta?.charges ?? 0;
+      realized += p + c; // gross profit
+      charges += c;
+      proceeds += tx.amount;
+      cost += tx.amount - p;
     }
-    return { realized, proceeds, cost };
+    const grossProfit = realized;
+    const netProfit = grossProfit - charges;
+    return { grossProfit, netProfit, proceeds, cost, charges };
   }, [sells]);
 
   const exportCSV = () => {
@@ -108,7 +113,7 @@ export function SoldStocksPanel({ transactions }: Props) {
       empty(S.TOTAL_EMPTY),
       empty(S.TOTAL_EMPTY),
       n(totals.proceeds, S.TOTAL_INR),
-      n(totals.realized, S.TOTAL_INR),
+      n(totals.netProfit, S.TOTAL_INR),
       empty(S.TOTAL_EMPTY),
       empty(S.TOTAL_EMPTY),
       empty(S.TOTAL_EMPTY),
@@ -122,15 +127,42 @@ export function SoldStocksPanel({ transactions }: Props) {
   };
 
   return (
-    <div className="space-y-4">
-      <div className="grid gap-3 sm:grid-cols-3">
-        <Stat label="Total Realized P&L" value={formatINR(totals.realized)} tone={totals.realized >= 0 ? "gain" : "loss"} />
-        <Stat label="Total Proceeds" value={formatINR(totals.proceeds)} />
-        <Stat label="Total Cost" value={formatINR(totals.cost)} />
+    <div className="space-y-5">
+      {/* ── Angel One-style P&L Summary Card ── */}
+      <div className="rounded-2xl bg-[#1e2533] text-white p-5 space-y-3 shadow-lg">
+        <div className="flex items-start justify-between">
+          <div>
+            <div className="text-xs text-gray-400 uppercase tracking-wider mb-1">Realised P&amp;L</div>
+            <div className={`text-2xl font-bold font-mono ${totals.grossProfit >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+              {totals.grossProfit >= 0 ? "+" : ""}₹{formatNumber(totals.grossProfit, 2)}
+            </div>
+          </div>
+          <div className="text-right">
+            <div className="text-xs text-gray-400 uppercase tracking-wider mb-1">Charges</div>
+            <div className="text-base font-mono text-white">₹{formatNumber(totals.charges, 2)}</div>
+          </div>
+        </div>
+        <div className="rounded-xl bg-white/10 px-4 py-3 flex items-center justify-between">
+          <div>
+            <div className="text-sm font-semibold text-white">Net Realised P&amp;L</div>
+            <div className="text-[11px] text-gray-400 mt-0.5">= Realised P&amp;L − Charges</div>
+          </div>
+          <div className={`text-xl font-bold font-mono ${totals.netProfit >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+            {totals.netProfit >= 0 ? "+" : ""}₹{formatNumber(totals.netProfit, 2)}
+          </div>
+        </div>
       </div>
 
+      {/* ── Stat chips row ── */}
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Stat label="Total Proceeds" value={formatINR(totals.proceeds)} />
+        <Stat label="Total Cost" value={formatINR(totals.cost)} />
+        <Stat label="Total Charges" value={formatINR(totals.charges)} />
+      </div>
+
+      {/* ── Header + export buttons ── */}
       <div className="flex items-center justify-between">
-        <h3 className="font-display text-lg font-semibold">Sold Stocks History</h3>
+        <h3 className="font-display text-lg font-semibold">Trade Overview</h3>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={exportCSV} className="gap-2 minimal:rounded-none">
             <Download className="h-3.5 w-3.5" /> CSV
@@ -141,15 +173,21 @@ export function SoldStocksPanel({ transactions }: Props) {
         </div>
       </div>
 
+      {/* ── Trade Overview table (Angel One style) ── */}
       <div className="overflow-x-auto rounded-2xl border border-border bg-card creative:shadow-soft minimal:rounded-none minimal:border-x-0 minimal:bg-transparent">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border bg-muted/30 text-left text-[11px] uppercase tracking-wider text-muted-foreground minimal:bg-transparent">
-              <th className="px-3 py-2.5 font-medium">Sell Date</th>
-              <th className="px-3 py-2.5 font-medium">Stock</th>
+              <th className="px-3 py-2.5 font-medium">
+                Avg Sell Price<br />
+                <span className="text-[10px] normal-case font-normal">(Sell Date)</span>
+              </th>
+              <th className="px-3 py-2.5 font-medium">
+                Avg Buy Price<br />
+                <span className="text-[10px] normal-case font-normal">(Buy Date)</span>
+              </th>
               <th className="px-3 py-2.5 text-right font-medium">Qty</th>
-              <th className="px-3 py-2.5 text-right font-medium">Buy ₹</th>
-              <th className="px-3 py-2.5 text-right font-medium">Sell ₹</th>
+              <th className="px-3 py-2.5 text-right font-medium">Stock</th>
               <th className="px-3 py-2.5 text-right font-medium">P&amp;L</th>
               <th className="hidden px-3 py-2.5 text-right font-medium md:table-cell">P/L %</th>
               <th className="hidden px-3 py-2.5 text-right font-medium md:table-cell">Days</th>
@@ -158,33 +196,66 @@ export function SoldStocksPanel({ transactions }: Props) {
           </thead>
           <tbody>
             {sells.length === 0 ? (
-              <tr><td colSpan={9} className="px-3 py-10 text-center text-muted-foreground">No sold stocks yet.</td></tr>
-            ) : sells.map((t) => {
-              const profit = t.meta?.profit ?? 0;
+              <tr><td colSpan={8} className="px-3 py-10 text-center text-muted-foreground">No sold stocks yet.</td></tr>
+            ) : sells.map((tx) => {
+              const profit = tx.meta?.profit ?? 0;
               const tone = profit >= 0 ? "text-gain" : "text-loss";
               return (
-                <tr key={t.id} className="border-b border-border hover:bg-accent/30">
-                  <td className="px-3 py-2 font-mono text-xs text-muted-foreground">{t.date}</td>
-                  <td className="px-3 py-2 font-mono font-semibold">{t.stock}</td>
-                  <td className="px-3 py-2 text-right font-mono">{t.qty}</td>
-                  <td className="px-3 py-2 text-right font-mono">{t.meta?.avgCost != null ? formatINR(t.meta.avgCost) : "—"}</td>
-                  <td className="px-3 py-2 text-right font-mono">{formatINR(t.price)}</td>
-                  <td className={`px-3 py-2 text-right font-mono font-semibold ${tone}`}>
-                    {profit >= 0 ? "+" : ""}{formatNumber(profit, 2)}
+                <tr key={tx.id} className="border-b border-border hover:bg-accent/30">
+                  {/* Sell price + date (stacked like Angel One) */}
+                  <td className="px-3 py-2.5">
+                    <div className="font-mono font-semibold">{tx.price != null ? formatINR(tx.price) : "—"}</div>
+                    <div className="text-[11px] text-muted-foreground font-mono mt-0.5">{tx.date}</div>
                   </td>
-                  <td className={`hidden px-3 py-2 text-right font-mono md:table-cell ${tone}`}>
-                    {t.meta?.profitPct != null ? `${t.meta.profitPct >= 0 ? "+" : ""}${formatNumber(t.meta.profitPct, 2)}%` : "—"}
+                  {/* Buy price + date stacked */}
+                  <td className="px-3 py-2.5">
+                    <div className="font-mono font-semibold">
+                      {tx.meta?.avgCost != null ? formatINR(tx.meta.avgCost) : "—"}
+                    </div>
+                    <div className="text-[11px] text-muted-foreground font-mono mt-0.5">
+                      {tx.meta?.buyDate ?? "—"}
+                    </div>
                   </td>
-                  <td className="hidden px-3 py-2 text-right font-mono text-xs text-muted-foreground md:table-cell">
-                    {t.meta?.holdingDays != null ? `${t.meta.holdingDays}d` : "—"}
+                  <td className="px-3 py-2.5 text-right font-mono">{tx.qty}</td>
+                  <td className="px-3 py-2.5 text-right font-mono font-semibold">{tx.stock}</td>
+                  <td className={`px-3 py-2.5 text-right font-mono font-semibold ${tone}`}>
+                    {profit >= 0 ? "+" : ""}₹{formatNumber(profit, 2)}
                   </td>
-                  <td className="hidden px-3 py-2 md:table-cell">
-                    {t.meta?.type && <Badge variant="outline" className="text-[10px]">{t.meta.type}</Badge>}
+                  <td className={`hidden px-3 py-2.5 text-right font-mono md:table-cell ${tone}`}>
+                    {tx.meta?.profitPct != null ? `${tx.meta.profitPct >= 0 ? "+" : ""}${formatNumber(tx.meta.profitPct, 2)}%` : "—"}
+                  </td>
+                  <td className="hidden px-3 py-2.5 text-right font-mono text-xs text-muted-foreground md:table-cell">
+                    {tx.meta?.holdingDays != null ? `${tx.meta.holdingDays}d` : "—"}
+                  </td>
+                  <td className="hidden px-3 py-2.5 md:table-cell">
+                    {tx.meta?.type && (
+                      <Badge
+                        variant="outline"
+                        className={`text-[10px] px-1.5 ${
+                          tx.meta.type === "LTCG"
+                            ? "border-gain text-gain"
+                            : "border-amber-500 text-amber-500"
+                        }`}
+                      >
+                        {tx.meta.type}
+                      </Badge>
+                    )}
                   </td>
                 </tr>
               );
             })}
           </tbody>
+          {sells.length > 0 && (
+            <tfoot>
+              <tr className="border-t border-border bg-muted/30 text-xs font-semibold">
+                <td colSpan={4} className="px-3 py-2 text-muted-foreground">Total</td>
+                <td className={`px-3 py-2 text-right font-mono ${totals.netProfit >= 0 ? "text-gain" : "text-loss"}`}>
+                  {totals.netProfit >= 0 ? "+" : ""}₹{formatNumber(totals.netProfit, 2)}
+                </td>
+                <td colSpan={3} />
+              </tr>
+            </tfoot>
+          )}
         </table>
       </div>
     </div>
