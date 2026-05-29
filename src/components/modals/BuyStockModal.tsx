@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Loader2, Search, CheckCircle2, AlertCircle, Plus, Minus, Info, TrendingUp } from "lucide-react";
+import { Loader2, Search, CheckCircle2, AlertCircle, Plus, Minus } from "lucide-react";
 import { MobileSheet } from "./MobileSheet";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -21,7 +21,6 @@ interface Props {
 }
 
 export function BuyStockModal({ open, onClose, cashBalance, onConfirm }: Props) {
-  // Search state
   const [query, setQuery] = useState("");
   const [debounced, setDebounced] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
@@ -31,16 +30,14 @@ export function BuyStockModal({ open, onClose, cashBalance, onConfirm }: Props) 
   const [verifying, setVerifying] = useState(false);
   const [verified, setVerified] = useState<{ name: string; cmp: number } | null>(null);
 
-  // Order fields
   const [price, setPrice] = useState("");
   const [qty, setQty] = useState("1");
   const [buyDate, setBuyDate] = useState(todayStr());
   const [chargesPerShare, setChargesPerShare] = useState("0");
 
-  // UI state
   const [err, setErr] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [step, setStep] = useState<"form" | "confirm" | "success">("form");
+  const [step, setStep] = useState<"form" | "success">("form");
   const wrapRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -101,32 +98,27 @@ export function BuyStockModal({ open, onClose, cashBalance, onConfirm }: Props) 
   const gross = priceNum * qtyNum;
   const totalCharges = chargesNum * qtyNum;
   const totalInvested = gross + totalCharges;
+  // Avg buy price includes charges per share
+  const avgBuyPrice = priceNum + chargesNum;
   const isInsufficient = totalInvested > cashBalance;
 
-  const handleReview = () => {
+  const handleConfirm = async () => {
     setErr(null);
     if (!picked || !picked.symbol) return setErr("Please pick a stock from the search results");
     if (!verified) return setErr("Stock not yet verified — please wait");
     if (qtyNum <= 0) return setErr("Enter a valid quantity");
     if (priceNum <= 0) return setErr("Enter a valid price");
     if (isInsufficient) return setErr("Insufficient cash balance");
-    setStep("confirm");
-  };
-
-  const handleConfirm = async () => {
     setSubmitting(true);
-    setErr(null);
     try {
       if (onConfirm(picked!.symbol!, priceNum, qtyNum, buyDate, chargesNum)) {
         setStep("success");
         setTimeout(() => onClose(), 1800);
       } else {
         setErr("Order placement failed");
-        setStep("form");
       }
     } catch (e) {
       setErr(`Order failed: ${(e as Error).message}`);
-      setStep("form");
     } finally {
       setSubmitting(false);
     }
@@ -137,111 +129,24 @@ export function BuyStockModal({ open, onClose, cashBalance, onConfirm }: Props) 
     return (
       <MobileSheet open={open} onClose={onClose} title="">
         <div className="flex flex-col items-center justify-center py-10 gap-4 text-center">
-          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-green-500/15">
-            <CheckCircle2 className="h-8 w-8 text-green-500" />
+          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-black/10 dark:bg-white/10">
+            <CheckCircle2 className="h-8 w-8 text-foreground" />
           </div>
           <div>
-            <p className="text-lg font-bold text-foreground">Buy Order Placed!</p>
+            <p className="text-lg font-bold text-foreground">Bought Successfully!</p>
             <p className="text-sm text-muted-foreground mt-1">
               {qtyNum} × {picked?.symbol?.replace(/\.(NS|BO)$/, "")} @ {formatINR(priceNum)}
             </p>
           </div>
-          <div className="rounded-xl border border-green-500/30 bg-green-500/8 px-4 py-2 text-sm space-y-1 w-full max-w-xs">
+          <div className="rounded-xl border border-border bg-muted/40 px-4 py-3 w-full max-w-xs space-y-2 text-sm">
             <div className="flex justify-between text-muted-foreground">
               <span>Total Invested</span>
               <span className="font-mono font-bold text-foreground">{formatINR(totalInvested)}</span>
             </div>
-            {totalCharges > 0 && (
-              <div className="flex justify-between text-xs text-muted-foreground">
-                <span>incl. charges</span>
-                <span className="font-mono">{formatINR(totalCharges)}</span>
-              </div>
-            )}
-          </div>
-        </div>
-      </MobileSheet>
-    );
-  }
-
-  // ── Confirm screen ────────────────────────────────────────────────────────
-  if (step === "confirm") {
-    return (
-      <MobileSheet open={open} onClose={onClose} title="Confirm Buy Order">
-        <div className="py-3 space-y-4">
-          {/* Stock header */}
-          <div className="rounded-xl border border-border bg-muted/40 p-4 space-y-3">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="font-mono font-bold text-base">{picked?.symbol?.replace(/\.(NS|BO)$/, "")}</p>
-                <p className="text-xs text-muted-foreground">{verified?.name}</p>
-              </div>
-              <Badge className="bg-green-500/15 text-green-600 border-green-500/30 font-bold">BUY</Badge>
+            <div className="flex justify-between text-xs text-muted-foreground">
+              <span>Avg Buy Price</span>
+              <span className="font-mono">{formatINR(avgBuyPrice)}/sh</span>
             </div>
-
-            <div className="h-px bg-border" />
-
-            {/* Order summary grid */}
-            <div className="grid grid-cols-2 gap-y-3 text-sm">
-              <div>
-                <p className="text-[11px] text-muted-foreground uppercase tracking-wide">Price / Share</p>
-                <p className="font-mono font-semibold">{formatINR(priceNum)}</p>
-              </div>
-              <div>
-                <p className="text-[11px] text-muted-foreground uppercase tracking-wide">Quantity</p>
-                <p className="font-mono font-semibold">{qtyNum} shares</p>
-              </div>
-              <div>
-                <p className="text-[11px] text-muted-foreground uppercase tracking-wide">Buy Date</p>
-                <p className="font-semibold">{buyDate}</p>
-              </div>
-              <div>
-                <p className="text-[11px] text-muted-foreground uppercase tracking-wide">Charges / Share</p>
-                <p className="font-mono font-semibold">{formatINR(chargesNum)}</p>
-              </div>
-            </div>
-
-            <div className="h-px bg-border" />
-
-            {/* Cost breakdown */}
-            <div className="space-y-2 text-sm">
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">Gross Amount</span>
-                <span className="font-mono">{formatINR(gross)}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">Total Charges</span>
-                <span className="font-mono">{formatINR(totalCharges)}</span>
-              </div>
-              <div className="h-px bg-border" />
-              <div className="flex items-center justify-between font-semibold">
-                <span>Total Invested</span>
-                <span className="font-mono text-base">{formatINR(totalInvested)}</span>
-              </div>
-              <div className="flex items-center justify-between text-xs text-muted-foreground">
-                <span>Balance After</span>
-                <span className="font-mono text-green-600">{formatINR(Math.max(0, cashBalance - totalInvested))}</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/8 px-3 py-2 text-xs text-amber-600 dark:text-amber-400">
-            <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-            <span>Review carefully. This will deduct {formatINR(totalInvested)} from your cash balance.</span>
-          </div>
-
-          {err && <p className="text-xs text-destructive">{err}</p>}
-
-          <div className="flex gap-2 pt-1">
-            <Button variant="outline" className="flex-1" onClick={() => setStep("form")} disabled={submitting}>
-              Modify
-            </Button>
-            <Button
-              className="flex-1 bg-green-600 hover:bg-green-700 text-white font-bold"
-              onClick={handleConfirm}
-              disabled={submitting}
-            >
-              {submitting ? <><Loader2 className="mr-1.5 h-4 w-4 animate-spin" />Placing…</> : "Confirm Buy"}
-            </Button>
           </div>
         </div>
       </MobileSheet>
@@ -250,35 +155,10 @@ export function BuyStockModal({ open, onClose, cashBalance, onConfirm }: Props) 
 
   // ── Main order form ───────────────────────────────────────────────────────
   return (
-    <MobileSheet open={open} onClose={onClose} title="">
-      {/* Green header */}
-      <div className="-mx-4 -mt-4 mb-5 bg-green-600 px-4 py-3 flex items-center justify-between">
-        <div>
-          {picked && verified ? (
-            <>
-              <p className="font-mono text-sm font-bold text-white">{picked.symbol?.replace(/\.(NS|BO)$/, "")}</p>
-              <p className="text-xs text-green-100 truncate max-w-[180px]">{verified.name}</p>
-            </>
-          ) : (
-            <>
-              <p className="text-sm font-bold text-white flex items-center gap-1.5">
-                <TrendingUp className="h-4 w-4" /> Buy Stock
-              </p>
-              <p className="text-xs text-green-100">Search and add to portfolio</p>
-            </>
-          )}
-        </div>
-        {verified && (
-          <div className="text-right">
-            <p className="font-mono text-base font-bold text-white">{formatINR(verified.cmp)}</p>
-            <p className="text-[10px] text-green-100">LTP</p>
-          </div>
-        )}
-      </div>
+    <MobileSheet open={open} onClose={onClose} title="Buy Stock">
+      <div className="space-y-4 pt-1">
 
-      <div className="space-y-4">
-
-        {/* ── Stock search ── */}
+        {/* Stock search */}
         {!picked && (
           <div ref={wrapRef} className="space-y-1.5 relative">
             <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Symbol</Label>
@@ -331,7 +211,7 @@ export function BuyStockModal({ open, onClose, cashBalance, onConfirm }: Props) 
             {verifying ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
             ) : verified ? (
-              <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
+              <CheckCircle2 className="h-3.5 w-3.5 text-foreground" />
             ) : (
               <AlertCircle className="h-3.5 w-3.5 text-destructive" />
             )}
@@ -347,7 +227,7 @@ export function BuyStockModal({ open, onClose, cashBalance, onConfirm }: Props) 
           </div>
         )}
 
-        {/* ── Price field ── */}
+        {/* Price */}
         <div className="space-y-1.5">
           <Label htmlFor="b-price" className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             Price per Share (₹)
@@ -362,14 +242,9 @@ export function BuyStockModal({ open, onClose, cashBalance, onConfirm }: Props) 
             className="font-mono font-semibold text-base"
             placeholder={verified ? String(verified.cmp) : "Enter price"}
           />
-          {verified && priceNum !== verified.cmp && priceNum > 0 && (
-            <p className="text-[11px] text-muted-foreground">
-              LTP: {formatINR(verified.cmp)} · diff {priceNum > verified.cmp ? "+" : ""}{((priceNum - verified.cmp) / verified.cmp * 100).toFixed(2)}%
-            </p>
-          )}
         </div>
 
-        {/* ── Qty + Date row ── */}
+        {/* Qty + Date */}
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5">
             <Label htmlFor="b-qty" className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -415,11 +290,10 @@ export function BuyStockModal({ open, onClose, cashBalance, onConfirm }: Props) 
           </div>
         </div>
 
-        {/* ── Charges per share ── */}
+        {/* Charges per share */}
         <div className="space-y-1.5">
           <Label htmlFor="b-charges" className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             Charges per Share (₹)
-            <span className="ml-1.5 normal-case font-normal text-muted-foreground">(brokerage + STT + GST etc.)</span>
           </Label>
           <Input
             id="b-charges"
@@ -433,10 +307,8 @@ export function BuyStockModal({ open, onClose, cashBalance, onConfirm }: Props) 
           />
         </div>
 
-        {/* ── Details / Cost breakdown ── */}
-        <div className="rounded-xl border border-border bg-muted/30 px-4 py-3 space-y-2.5">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Order Details</p>
-
+        {/* Order summary */}
+        <div className="rounded-xl border border-border bg-muted/30 px-4 py-3 space-y-2">
           <div className="space-y-1.5 text-sm">
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">Gross Amount</span>
@@ -458,18 +330,21 @@ export function BuyStockModal({ open, onClose, cashBalance, onConfirm }: Props) 
                 {formatINR(totalInvested)}
               </span>
             </div>
+            {priceNum > 0 && (
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-muted-foreground">Avg Buy Price (incl. charges)</span>
+                <span className="font-mono font-semibold">{formatINR(avgBuyPrice)}/sh</span>
+              </div>
+            )}
             <div className="flex items-center justify-between text-xs">
               <span className="text-muted-foreground">Available Balance</span>
-              <span className={`font-mono font-semibold ${isInsufficient ? "text-destructive" : "text-green-600"}`}>
+              <span className={`font-mono font-semibold ${isInsufficient ? "text-destructive" : "text-foreground"}`}>
                 {formatINR(cashBalance)}
               </span>
             </div>
           </div>
-
           {isInsufficient && (
-            <p className="text-xs text-destructive font-medium">
-              Short by {formatINR(totalInvested - cashBalance)}
-            </p>
+            <p className="text-xs text-destructive font-medium">Short by {formatINR(totalInvested - cashBalance)}</p>
           )}
         </div>
 
@@ -481,13 +356,13 @@ export function BuyStockModal({ open, onClose, cashBalance, onConfirm }: Props) 
         )}
 
         <div className="flex gap-2 pt-1">
-          <Button variant="outline" className="flex-1" onClick={onClose}>Cancel</Button>
+          <Button variant="outline" className="flex-1 border-border" onClick={onClose}>Cancel</Button>
           <Button
-            className="flex-1 bg-green-600 hover:bg-green-700 text-white font-bold"
-            onClick={handleReview}
-            disabled={!verified || verifying || isInsufficient || qtyNum <= 0 || priceNum <= 0}
+            className="flex-1 bg-foreground text-background hover:bg-foreground/90 font-bold"
+            onClick={handleConfirm}
+            disabled={!verified || verifying || isInsufficient || qtyNum <= 0 || priceNum <= 0 || submitting}
           >
-            Review Order
+            {submitting ? <><Loader2 className="mr-1.5 h-4 w-4 animate-spin" />Placing…</> : "Buy"}
           </Button>
         </div>
       </div>
