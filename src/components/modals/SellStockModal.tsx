@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, CheckCircle2, Minus, Plus } from "lucide-react";
+import { Loader2, CheckCircle2, Minus, Plus, TrendingUp, TrendingDown } from "lucide-react";
 import { MobileSheet } from "./MobileSheet";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
 import type { Holding } from "@/types/portfolio.types";
 import { formatINR } from "@/utils/formatters";
 import { fifoSell } from "@/utils/fifo";
@@ -60,6 +61,12 @@ export function SellStockModal({ open, onClose, portfolio, prices, prefillTicker
     return fifoSell(lots, qtyNum, priceNum, sellDate, chargesNum);
   }, [holding, priceNum, qtyNum, sellDate, chargesNum]);
 
+  // Build FIFO lot breakdown string for display: "200@10 + 400@5"
+  const fifoBreakdown = useMemo(() => {
+    if (!fifoResult) return null;
+    return fifoResult.lotDetails.map((d) => `${d.qtySold}@${formatINR(d.lotPrice)}`).join(" + ");
+  }, [fifoResult]);
+
   const handleConfirm = () => {
     setErr(null);
     if (!ticker) return setErr("Select a stock to sell");
@@ -97,7 +104,7 @@ export function SellStockModal({ open, onClose, portfolio, prices, prefillTicker
           </div>
           <div className="rounded-xl border border-border bg-muted/40 px-4 py-3 w-full max-w-xs space-y-2 text-sm">
             <div className="flex justify-between">
-              <span className="text-muted-foreground">Total Amount</span>
+              <span className="text-muted-foreground">Gross Amount</span>
               <span className="font-mono font-bold">{formatINR(gross)}</span>
             </div>
             <div className="flex justify-between">
@@ -109,6 +116,21 @@ export function SellStockModal({ open, onClose, portfolio, prices, prefillTicker
               <span className="font-semibold">Net Proceeds</span>
               <span className="font-mono font-bold">{formatINR(netProceeds)}</span>
             </div>
+            {fifoResult && (
+              <>
+                <div className="h-px bg-border" />
+                <div className="flex justify-between text-xs">
+                  <span className="text-muted-foreground">FIFO Avg Buy</span>
+                  <span className="font-mono">{formatINR(fifoResult.fifoAvgCost)}/sh</span>
+                </div>
+                <div className="flex justify-between text-xs font-semibold">
+                  <span>Net P&L</span>
+                  <span className={`font-mono ${fifoResult.netProfit >= 0 ? "text-green-600" : "text-destructive"}`}>
+                    {fifoResult.netProfit >= 0 ? "+" : ""}{formatINR(fifoResult.netProfit)}
+                  </span>
+                </div>
+              </>
+            )}
           </div>
         </div>
       </MobileSheet>
@@ -140,7 +162,7 @@ export function SellStockModal({ open, onClose, portfolio, prices, prefillTicker
           </Select>
           {holding && (
             <p className="text-[11px] text-muted-foreground">
-              {holding.qty} shares held · Avg buy {formatINR(holding.avgPrice)}
+              {holding.qty} shares held · {holding.lots?.length ?? 1} lot{(holding.lots?.length ?? 1) !== 1 ? "s" : ""} · Avg buy {formatINR(holding.avgPrice)}
             </p>
           )}
         </div>
@@ -234,11 +256,51 @@ export function SellStockModal({ open, onClose, portfolio, prices, prefillTicker
           />
         </div>
 
+        {/* FIFO Lot Breakdown — shown when lots are available */}
+        {fifoResult && fifoResult.lotDetails.length > 0 && (
+          <div className="rounded-xl border border-border bg-muted/20 px-4 py-3 space-y-2">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              FIFO Lot Breakdown
+            </p>
+            <div className="space-y-1.5">
+              {fifoResult.lotDetails.map((d, i) => (
+                <div key={d.lotId} className="flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-2">
+                    <span className="w-4 h-4 flex items-center justify-center rounded-full bg-muted text-[10px] font-bold text-muted-foreground">
+                      {i + 1}
+                    </span>
+                    <span className="font-mono">
+                      <span className="font-semibold">{d.qtySold}</span>
+                      <span className="text-muted-foreground"> sh @ </span>
+                      <span className="font-semibold">{formatINR(d.lotPrice)}</span>
+                    </span>
+                    <Badge variant="outline" className="text-[9px] h-4 px-1">
+                      {d.taxType} · {d.holdingDays}d
+                    </Badge>
+                  </div>
+                  <span className={`font-mono font-semibold ${d.lotProfit >= 0 ? "text-green-600" : "text-destructive"}`}>
+                    {d.lotProfit >= 0 ? "+" : ""}{formatINR(d.lotProfit)}
+                  </span>
+                </div>
+              ))}
+            </div>
+            {fifoBreakdown && (
+              <div className="mt-1 pt-1.5 border-t border-border text-[11px] text-muted-foreground">
+                Buy lots consumed: <span className="font-mono font-semibold text-foreground">{fifoBreakdown}</span>
+              </div>
+            )}
+            <div className="pt-0.5 border-t border-border flex items-center justify-between text-xs font-semibold">
+              <span className="text-muted-foreground">FIFO Avg Buy Price</span>
+              <span className="font-mono">{formatINR(fifoResult.fifoAvgCost)}/sh</span>
+            </div>
+          </div>
+        )}
+
         {/* Summary */}
         <div className="rounded-xl border border-border bg-muted/30 px-4 py-3 space-y-2">
           <div className="space-y-1.5 text-sm">
             <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">Total Amount</span>
+              <span className="text-muted-foreground">Gross Amount</span>
               <span className="font-mono">{formatINR(gross)}</span>
             </div>
             <div className="flex items-center justify-between">
@@ -254,8 +316,17 @@ export function SellStockModal({ open, onClose, portfolio, prices, prefillTicker
               <>
                 <div className="h-px bg-border" />
                 <div className="flex items-center justify-between text-xs">
-                  <span className="text-muted-foreground">Net Realised P&L (FIFO)</span>
-                  <span className={`font-mono font-semibold ${fifoResult.netProfit >= 0 ? "text-green-600" : "text-destructive"}`}>
+                  <span className="text-muted-foreground">FIFO Avg Buy</span>
+                  <span className="font-mono">{formatINR(fifoResult.fifoAvgCost)}/sh</span>
+                </div>
+                <div className="flex items-center justify-between text-xs font-semibold">
+                  <span className="flex items-center gap-1">
+                    Net Realised P&L
+                    {fifoResult.netProfit >= 0
+                      ? <TrendingUp className="h-3 w-3 text-green-600" />
+                      : <TrendingDown className="h-3 w-3 text-destructive" />}
+                  </span>
+                  <span className={`font-mono ${fifoResult.netProfit >= 0 ? "text-green-600" : "text-destructive"}`}>
                     {fifoResult.netProfit >= 0 ? "+" : ""}{formatINR(fifoResult.netProfit)}
                   </span>
                 </div>
