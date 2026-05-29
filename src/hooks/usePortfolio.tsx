@@ -93,8 +93,9 @@ export function usePortfolioState() {
 
       setCashBalance((c) => c - total);
 
-      // Lot price = trading price only (charges are tracked separately, not baked into cost basis)
-      const newLot = makeLot(buyDate, price, qty);
+      // Lot price = trading price + charges per share (true cost basis, matches Angel One avg)
+      const lotPrice = price + Math.max(0, chargesPerShare);
+      const newLot = makeLot(buyDate, lotPrice, qty);
 
       setPortfolio((prev) => {
         // Migrate all existing holdings first
@@ -123,7 +124,7 @@ export function usePortfolioState() {
           {
             ticker,
             qty,
-            avgPrice: price,
+            avgPrice: lotPrice,
             buyDate,
             lots: [newLot],
           },
@@ -144,7 +145,7 @@ export function usePortfolioState() {
             type: "Market Buy",
             tradingPrice: price,
             chargesPerShare: Math.max(0, chargesPerShare),
-            avgCost: price, // avg traded price (charges tracked separately)
+            avgCost: lotPrice, // true cost basis per share (trading price + charges)
             buyDate,
             charges: totalCharges,
             grossAmount: gross,
