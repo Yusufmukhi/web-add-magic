@@ -312,11 +312,19 @@ export function SellStockModal({ open, onClose, portfolio, prices, prefillTicker
               <span>Net Proceeds</span>
               <span className="font-mono text-base">{formatINR(netProceeds)}</span>
             </div>
-            {fifoResult && (
+            {holding && (
               <>
                 <div className="h-px bg-border" />
                 <div className="flex items-center justify-between text-xs">
-                  <span className="text-muted-foreground">FIFO Avg Buy</span>
+                  <span className="text-muted-foreground">Avg Buy Price (holding)</span>
+                  <span className="font-mono font-semibold">{formatINR(holding.avgPrice)}/sh</span>
+                </div>
+              </>
+            )}
+            {fifoResult && (
+              <>
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground">FIFO Avg Cost (lots consumed)</span>
                   <span className="font-mono">{formatINR(fifoResult.fifoAvgCost)}/sh</span>
                 </div>
                 <div className="flex items-center justify-between text-xs font-semibold">
