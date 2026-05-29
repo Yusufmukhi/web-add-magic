@@ -247,30 +247,91 @@ export function HoldingDetailPage({ symbol, onBack }: Props) {
           </div>
         )}
 
-        {/* SECTION 5 — Realized P&L */}
-        {stats && stats.realized !== 0 && (
-          <div className="space-y-2">
-            <h2 className="text-[13px] font-medium text-muted-foreground uppercase tracking-wider">Realized P&L</h2>
-            <div className="rounded-xl border border-border bg-card p-4">
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">Total Realized Gain/Loss</span>
-                <span className={`font-mono font-semibold ${stats.realized >= 0 ? "text-gain" : "text-loss"}`}>
-                  {stats.realized >= 0 ? "+" : ""}₹{formatIN(stats.realized)}
-                </span>
-              </div>
-              <div className="mt-3 space-y-2">
-                {stockTxns.filter((t) => t.action === "SELL" && t.meta?.profit != null).map((t) => (
-                  <div key={t.id} className="flex items-center justify-between text-xs">
-                    <span className="text-muted-foreground">{t.date} · {t.qty} shares @ {formatINR(t.price ?? 0)}</span>
-                    <span className={`font-mono ${(t.meta?.profit ?? 0) >= 0 ? "text-gain" : "text-loss"}`}>
-                      {(t.meta?.profit ?? 0) >= 0 ? "+" : ""}₹{formatIN(t.meta?.profit ?? 0)}
-                    </span>
+        {/* SECTION 5 — Realized P&L (Angel One style) */}
+        {stats && stats.realized !== 0 && (() => {
+          const sellTxns = stockTxns.filter((t) => t.action === "SELL" && t.meta?.profit != null);
+          const totalCharges = sellTxns.reduce((s, t) => s + (t.meta?.charges ?? 0), 0);
+          const grossProfit = sellTxns.reduce((s, t) => s + (t.meta?.profit ?? 0) + (t.meta?.charges ?? 0), 0);
+          const netProfit = grossProfit - totalCharges;
+          return (
+            <div className="space-y-3">
+              <h2 className="text-[13px] font-medium text-muted-foreground uppercase tracking-wider">Realized P&L</h2>
+
+              {/* Angel One-style summary card */}
+              <div className="rounded-2xl bg-[#1e2533] text-white p-4 space-y-3">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <div className="text-[11px] text-gray-400 uppercase tracking-wider mb-1">Realised P&amp;L</div>
+                    <div className={`text-xl font-bold font-mono ${grossProfit >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                      {grossProfit >= 0 ? "+" : ""}₹{formatIN(grossProfit)}
+                    </div>
                   </div>
-                ))}
+                  <div className="text-right">
+                    <div className="text-[11px] text-gray-400 uppercase tracking-wider mb-1">Charges</div>
+                    <div className="text-sm font-mono text-white">₹{formatIN(totalCharges)}</div>
+                  </div>
+                </div>
+                <div className="rounded-xl bg-white/10 px-3 py-2.5 flex items-center justify-between">
+                  <div>
+                    <div className="text-sm font-semibold text-white">Net Realised P&amp;L</div>
+                    <div className="text-[10px] text-gray-400 mt-0.5">= Realised P&amp;L − Charges</div>
+                  </div>
+                  <div className={`text-lg font-bold font-mono ${netProfit >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                    {netProfit >= 0 ? "+" : ""}₹{formatIN(netProfit)}
+                  </div>
+                </div>
               </div>
+
+              {/* Trade Overview table (Angel One style) */}
+              {sellTxns.length > 0 && (
+                <div>
+                  <h3 className="text-[12px] font-medium text-muted-foreground uppercase tracking-wider mb-2">Trade Overview</h3>
+                  <div className="rounded-xl border border-border overflow-hidden">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b border-border bg-muted/40 text-muted-foreground">
+                          <th className="px-3 py-2 text-left font-medium">
+                            Avg Sell Price<br /><span className="text-[10px] font-normal">(Sell Date)</span>
+                          </th>
+                          <th className="px-3 py-2 text-left font-medium">
+                            Avg Buy Price<br /><span className="text-[10px] font-normal">(Buy Date)</span>
+                          </th>
+                          <th className="px-3 py-2 text-right font-medium">Qty</th>
+                          <th className="px-3 py-2 text-right font-medium">P&amp;L</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sellTxns.map((tx) => {
+                          const profit = tx.meta?.profit ?? 0;
+                          return (
+                            <tr key={tx.id} className="border-b border-border/50 last:border-0 hover:bg-muted/20">
+                              <td className="px-3 py-2.5">
+                                <div className="font-mono font-semibold">{tx.price != null ? formatINR(tx.price) : "—"}</div>
+                                <div className="text-[10px] text-muted-foreground font-mono mt-0.5">{tx.date}</div>
+                              </td>
+                              <td className="px-3 py-2.5">
+                                <div className="font-mono font-semibold">
+                                  {tx.meta?.avgCost != null ? formatINR(tx.meta.avgCost) : "—"}
+                                </div>
+                                <div className="text-[10px] text-muted-foreground font-mono mt-0.5">
+                                  {tx.meta?.buyDate ?? "—"}
+                                </div>
+                              </td>
+                              <td className="px-3 py-2.5 text-right font-mono">{tx.qty}</td>
+                              <td className={`px-3 py-2.5 text-right font-mono font-semibold ${profit >= 0 ? "text-gain" : "text-loss"}`}>
+                                {profit >= 0 ? "+" : ""}₹{formatIN(profit)}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* View on stock page */}
         <button
