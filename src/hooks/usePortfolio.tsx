@@ -93,7 +93,9 @@ export function usePortfolioState() {
 
       setCashBalance((c) => c - total);
 
-      const newLot = makeLot(buyDate, price, qty);
+      // Lot price = trading price + charges per share (true avg buy price for FIFO cost basis)
+      const avgBuyPrice = price + Math.max(0, chargesPerShare);
+      const newLot = makeLot(buyDate, avgBuyPrice, qty);
 
       setPortfolio((prev) => {
         // Migrate all existing holdings first
@@ -141,7 +143,9 @@ export function usePortfolioState() {
           cashAfter: 0,
           meta: {
             type: "Market Buy",
-            avgCost: price,
+            tradingPrice: price,
+            chargesPerShare: Math.max(0, chargesPerShare),
+            avgCost: price + Math.max(0, chargesPerShare), // avg buy price incl. charges
             buyDate,
             charges: totalCharges,
             grossAmount: gross,
