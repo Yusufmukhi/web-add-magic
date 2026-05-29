@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Loader2, Search, CheckCircle2, AlertCircle, Plus, Minus } from "lucide-react";
+import { Loader2, Search, CheckCircle2, AlertCircle, Plus, Minus, Info } from "lucide-react";
 import { MobileSheet } from "./MobileSheet";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,6 +12,9 @@ import type { SearchApiResponse } from "@/types/api.types";
 type SearchResult = NonNullable<SearchApiResponse["quotes"]>[number];
 
 const todayStr = () => new Date().toISOString().slice(0, 10);
+
+// Angel One flat brokerage default (₹5 per order on delivery)
+const DEFAULT_BROKERAGE = 5;
 
 interface Props {
   open: boolean;
@@ -33,7 +36,9 @@ export function BuyStockModal({ open, onClose, cashBalance, onConfirm }: Props) 
   const [price, setPrice] = useState("");
   const [qty, setQty] = useState("1");
   const [buyDate, setBuyDate] = useState(todayStr());
-  const [chargesPerShare, setChargesPerShare] = useState("0");
+  // Separate brokerage and other charges (matching Angel One breakdown)
+  const [brokerage, setBrokerage] = useState(String(DEFAULT_BROKERAGE));
+  const [otherCharges, setOtherCharges] = useState("0");
 
   const [err, setErr] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -45,7 +50,8 @@ export function BuyStockModal({ open, onClose, cashBalance, onConfirm }: Props) 
       setQuery(""); setDebounced(""); setResults([]); setShowResults(false);
       setPicked(null); setVerified(null); setVerifying(false);
       setPrice(""); setQty("1"); setBuyDate(todayStr());
-      setChargesPerShare("0"); setErr(null); setStep("form");
+      setBrokerage(String(DEFAULT_BROKERAGE)); setOtherCharges("0");
+      setErr(null); setStep("form");
     }
   }, [open]);
 
@@ -94,12 +100,16 @@ export function BuyStockModal({ open, onClose, cashBalance, onConfirm }: Props) 
 
   const priceNum = parseFloat(price) || 0;
   const qtyNum = Math.max(0, parseInt(qty) || 0);
-  const chargesNum = Math.max(0, parseFloat(chargesPerShare) || 0);
-  const gross = priceNum * qtyNum;
-  const totalCharges = chargesNum * qtyNum;
-  const totalInvested = gross + totalCharges;
-  // Avg buy price includes charges per share
-  const avgBuyPrice = priceNum + chargesNum;
+  const brokerageNum = Math.max(0, parseFloat(brokerage) || 0);
+  const otherChargesNum = Math.max(0, parseFloat(otherCharges) || 0);
+  // Total charges for the whole order (not per share)
+  const totalCharges = brokerageNum + otherChargesNum;
+  // Charges per share = total charges / qty (passed to portfolio logic)
+  const chargesPerShareCalc = qtyNum > 0 ? totalCharges / qtyNum : 0;
+  const orderValue = priceNum * qtyNum;
+  const totalInvested = orderValue + totalCharges;
+  // Avg buy price includes charges spread per share
+  const avgBuyPrice = qtyNum > 0 ? totalInvested / qtyNum : 0;
   const isInsufficient = totalInvested > cashBalance;
 
   const handleConfirm = async () => {
@@ -111,7 +121,7 @@ export function BuyStockModal({ open, onClose, cashBalance, onConfirm }: Props) 
     if (isInsufficient) return setErr("Insufficient cash balance");
     setSubmitting(true);
     try {
-      if (onConfirm(picked!.symbol!, priceNum, qtyNum, buyDate, chargesNum)) {
+      if (onConfirm(picked!.symbol!, priceNum, qtyNum, buyDate, chargesPerShareCalc)) {
         setStep("success");
         setTimeout(() => onClose(), 1800);
       } else {
@@ -139,21 +149,27 @@ export function BuyStockModal({ open, onClose, cashBalance, onConfirm }: Props) 
             </p>
           </div>
           <div className="rounded-xl border border-border bg-muted/40 px-4 py-3 w-full max-w-xs space-y-2 text-sm">
+            {/* Angel One style breakdown */}
             <div className="flex justify-between text-muted-foreground">
-              <span>Total Invested</span>
+              <span>Order Value</span>
+              <span className="font-mono">{formatINR(orderValue)}</span>
+            </div>
+            <div className="flex justify-between text-muted-foreground">
+              <span>Brokerage</span>
+              <span className="font-mono">{formatINR(brokerageNum)}</span>
+            </div>
+            <div className="flex justify-between text-muted-foreground">
+              <span>Charges (STT + GST…)</span>
+              <span className="font-mono">{formatINR(otherChargesNum)}</span>
+            </div>
+            <div className="h-px bg-border" />
+            <div className="flex justify-between text-muted-foreground">
+              <span className="font-semibold text-foreground">Total Invested</span>
               <span className="font-mono font-bold text-foreground">{formatINR(totalInvested)}</span>
             </div>
             <div className="h-px bg-border" />
-            <div className="flex justify-between text-xs text-muted-foreground">
-              <span>Avg Trading Price</span>
-              <span className="font-mono">{formatINR(priceNum)}/sh</span>
-            </div>
-            <div className="flex justify-between text-xs text-muted-foreground">
-              <span>Charges/share</span>
-              <span className="font-mono">{formatINR(chargesNum)}/sh</span>
-            </div>
             <div className="flex justify-between text-xs font-semibold">
-              <span>Avg Traded Price (incl. charges)</span>
+              <span>Avg Buy Price (incl. charges)</span>
               <span className="font-mono">{formatINR(avgBuyPrice)}/sh</span>
             </div>
           </div>
@@ -239,7 +255,7 @@ export function BuyStockModal({ open, onClose, cashBalance, onConfirm }: Props) 
         {/* Price */}
         <div className="space-y-1.5">
           <Label htmlFor="b-price" className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Price per Share (₹)
+            Buy Price (₹)
           </Label>
           <Input
             id="b-price"
@@ -299,38 +315,72 @@ export function BuyStockModal({ open, onClose, cashBalance, onConfirm }: Props) 
           </div>
         </div>
 
-        {/* Charges per share */}
-        <div className="space-y-1.5">
-          <Label htmlFor="b-charges" className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Charges per Share (₹)
-          </Label>
-          <Input
-            id="b-charges"
-            type="number"
-            min="0"
-            step="0.01"
-            value={chargesPerShare}
-            onChange={(e) => setChargesPerShare(e.target.value)}
-            className="font-mono"
-            placeholder="0"
-          />
+        {/* Charges section — Angel One style: Brokerage + Other Charges */}
+        <div className="rounded-xl border border-border bg-muted/20 px-4 py-3 space-y-3">
+          <div className="flex items-center gap-1.5">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Transaction Charges</p>
+            <Info className="h-3 w-3 text-muted-foreground/60" />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            {/* Brokerage */}
+            <div className="space-y-1.5">
+              <Label htmlFor="b-brokerage" className="text-xs text-muted-foreground">
+                Brokerage (₹)
+              </Label>
+              <Input
+                id="b-brokerage"
+                type="number"
+                min="0"
+                step="0.01"
+                value={brokerage}
+                onChange={(e) => setBrokerage(e.target.value)}
+                className="font-mono text-sm"
+                placeholder="5.00"
+              />
+            </div>
+
+            {/* STT + GST + others */}
+            <div className="space-y-1.5">
+              <Label htmlFor="b-other-charges" className="text-xs text-muted-foreground">
+                Charges (STT+GST…)
+              </Label>
+              <Input
+                id="b-other-charges"
+                type="number"
+                min="0"
+                step="0.01"
+                value={otherCharges}
+                onChange={(e) => setOtherCharges(e.target.value)}
+                className="font-mono text-sm"
+                placeholder="0.00"
+              />
+            </div>
+          </div>
+
+          {/* Total charges line */}
+          {totalCharges > 0 && (
+            <div className="flex justify-between text-xs pt-0.5 border-t border-border">
+              <span className="text-muted-foreground">Total Charges</span>
+              <span className="font-mono font-semibold">{formatINR(totalCharges)}</span>
+            </div>
+          )}
         </div>
 
-        {/* Order summary */}
+        {/* Angel One-style order summary */}
         <div className="rounded-xl border border-border bg-muted/30 px-4 py-3 space-y-2">
           <div className="space-y-1.5 text-sm">
             <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">Gross Amount</span>
-              <span className="font-mono">{formatINR(gross)}</span>
+              <span className="text-muted-foreground">Order Value</span>
+              <span className="font-mono">{formatINR(orderValue)}</span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">
-                Total Charges
-                {qtyNum > 0 && chargesNum > 0 && (
-                  <span className="text-[11px] ml-1 opacity-70">({qtyNum} × {formatINR(chargesNum)})</span>
-                )}
-              </span>
-              <span className="font-mono">{formatINR(totalCharges)}</span>
+              <span className="text-muted-foreground">Brokerage</span>
+              <span className="font-mono">{formatINR(brokerageNum)}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Charges (STT + GST…)</span>
+              <span className="font-mono">{formatINR(otherChargesNum)}</span>
             </div>
             <div className="h-px bg-border" />
             <div className="flex items-center justify-between font-semibold">
@@ -339,19 +389,11 @@ export function BuyStockModal({ open, onClose, cashBalance, onConfirm }: Props) 
                 {formatINR(totalInvested)}
               </span>
             </div>
-            {priceNum > 0 && (
+            {priceNum > 0 && qtyNum > 0 && (
               <>
                 <div className="h-px bg-border" />
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-muted-foreground">Avg Trading Price</span>
-                  <span className="font-mono">{formatINR(priceNum)}/sh</span>
-                </div>
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-muted-foreground">Charges/share</span>
-                  <span className="font-mono">{formatINR(chargesNum)}/sh</span>
-                </div>
                 <div className="flex items-center justify-between text-xs font-semibold">
-                  <span>Avg Traded Price (incl. charges)</span>
+                  <span className="text-muted-foreground">Avg Buy Price (incl. charges)</span>
                   <span className="font-mono">{formatINR(avgBuyPrice)}/sh</span>
                 </div>
               </>
