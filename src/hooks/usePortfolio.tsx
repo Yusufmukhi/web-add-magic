@@ -85,8 +85,10 @@ export function usePortfolioState() {
   // ─── BUY — creates a new FIFO lot ────────────────────────────────────────
 
   const buy = useCallback(
-    (ticker: string, price: number, qty: number, buyDate: string): boolean => {
-      const total = price * qty;
+    (ticker: string, price: number, qty: number, buyDate: string, chargesPerShare: number = 0): boolean => {
+      const gross = price * qty;
+      const totalCharges = Math.max(0, chargesPerShare) * qty;
+      const total = gross + totalCharges;
       if (total > cashBalance) return false;
 
       setCashBalance((c) => c - total);
@@ -141,6 +143,8 @@ export function usePortfolioState() {
             type: "Market Buy",
             avgCost: price,
             buyDate,
+            charges: totalCharges,
+            grossAmount: gross,
           },
         },
         ...prev,
