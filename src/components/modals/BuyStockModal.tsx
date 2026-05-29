@@ -143,7 +143,16 @@ export function BuyStockModal({ open, onClose, cashBalance, onConfirm }: Props) 
               <span>Total Invested</span>
               <span className="font-mono font-bold text-foreground">{formatINR(totalInvested)}</span>
             </div>
+            <div className="h-px bg-border" />
             <div className="flex justify-between text-xs text-muted-foreground">
+              <span>Avg Trading Price</span>
+              <span className="font-mono">{formatINR(priceNum)}/sh</span>
+            </div>
+            <div className="flex justify-between text-xs text-muted-foreground">
+              <span>Charges/share</span>
+              <span className="font-mono">{formatINR(chargesNum)}/sh</span>
+            </div>
+            <div className="flex justify-between text-xs font-semibold">
               <span>Avg Buy Price</span>
               <span className="font-mono">{formatINR(avgBuyPrice)}/sh</span>
             </div>
@@ -331,10 +340,21 @@ export function BuyStockModal({ open, onClose, cashBalance, onConfirm }: Props) 
               </span>
             </div>
             {priceNum > 0 && (
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-muted-foreground">Avg Buy Price (incl. charges)</span>
-                <span className="font-mono font-semibold">{formatINR(avgBuyPrice)}/sh</span>
-              </div>
+              <>
+                <div className="h-px bg-border" />
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground">Avg Trading Price</span>
+                  <span className="font-mono">{formatINR(priceNum)}/sh</span>
+                </div>
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground">Charges/share</span>
+                  <span className="font-mono">{formatINR(chargesNum)}/sh</span>
+                </div>
+                <div className="flex items-center justify-between text-xs font-semibold">
+                  <span>Avg Buy Price</span>
+                  <span className="font-mono">{formatINR(avgBuyPrice)}/sh</span>
+                </div>
+              </>
             )}
             <div className="flex items-center justify-between text-xs">
               <span className="text-muted-foreground">Available Balance</span>
