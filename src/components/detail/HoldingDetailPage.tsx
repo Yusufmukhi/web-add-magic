@@ -247,12 +247,37 @@ export function HoldingDetailPage({ symbol, onBack }: Props) {
           </div>
         )}
 
-        {/* SECTION 5 — Realized P&L (Angel One style) */}
+        {/* SECTION 5 — Realized P&L (Angel One style, per FIFO lot) */}
         {stats && stats.realized !== 0 && (() => {
           const sellTxns = stockTxns.filter((t) => t.action === "SELL" && t.meta?.profit != null);
           const totalCharges = sellTxns.reduce((s, t) => s + (t.meta?.charges ?? 0), 0);
-          const grossProfit = sellTxns.reduce((s, t) => s + (t.meta?.profit ?? 0) + (t.meta?.charges ?? 0), 0);
-          const netProfit = grossProfit - totalCharges;
+          const totalGross = sellTxns.reduce((s, t) => {
+            const net = t.meta?.profit ?? 0;
+            const ch = t.meta?.charges ?? 0;
+            return s + (t.meta?.grossProfit ?? net + ch);
+          }, 0);
+          const netProfit = totalGross - totalCharges;
+
+          // Expand into per-FIFO-lot rows
+          interface LotRow { key: string; sellDate: string; sellPrice: number; buyDate: string; buyPrice: number; qty: number; gross: number; net: number; taxType: string; }
+          const lotRows: LotRow[] = [];
+          for (const tx of sellTxns) {
+            const fifoLots = tx.meta?.fifoLots;
+            const txCharges = tx.meta?.charges ?? 0;
+            const txQty = tx.qty ?? 0;
+            if (fifoLots && fifoLots.length > 0) {
+              for (const lot of fifoLots) {
+                const proRatedCh = txQty > 0 ? (lot.qtySold / txQty) * txCharges : 0;
+                const lotGross = lot.lotProfit + proRatedCh;
+                lotRows.push({ key: tx.id + lot.lotId, sellDate: tx.date, sellPrice: tx.price ?? 0, buyDate: lot.lotDate, buyPrice: lot.lotPrice, qty: lot.qtySold, gross: lotGross, net: lot.lotProfit, taxType: lot.taxType });
+              }
+            } else {
+              const net = tx.meta?.profit ?? 0;
+              const ch = tx.meta?.charges ?? 0;
+              lotRows.push({ key: tx.id, sellDate: tx.date, sellPrice: tx.price ?? 0, buyDate: tx.meta?.buyDate ?? "", buyPrice: tx.meta?.avgCost ?? 0, qty: tx.qty ?? 0, gross: tx.meta?.grossProfit ?? net + ch, net, taxType: tx.meta?.type ?? "STCG" });
+            }
+          }
+
           return (
             <div className="space-y-3">
               <h2 className="text-[13px] font-medium text-muted-foreground uppercase tracking-wider">Realized P&L</h2>
@@ -262,8 +287,8 @@ export function HoldingDetailPage({ symbol, onBack }: Props) {
                 <div className="flex items-start justify-between">
                   <div>
                     <div className="text-[11px] text-gray-400 uppercase tracking-wider mb-1">Realised P&amp;L</div>
-                    <div className={`text-xl font-bold font-mono ${grossProfit >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-                      {grossProfit >= 0 ? "+" : ""}₹{formatIN(grossProfit)}
+                    <div className={`text-xl font-bold font-mono ${totalGross >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                      {totalGross >= 0 ? "+" : ""}₹{formatIN(totalGross)}
                     </div>
                   </div>
                   <div className="text-right">
@@ -282,48 +307,37 @@ export function HoldingDetailPage({ symbol, onBack }: Props) {
                 </div>
               </div>
 
-              {/* Trade Overview table (Angel One style) */}
-              {sellTxns.length > 0 && (
+              {/* Trade Overview — one row per FIFO lot (Angel One style) */}
+              {lotRows.length > 0 && (
                 <div>
                   <h3 className="text-[12px] font-medium text-muted-foreground uppercase tracking-wider mb-2">Trade Overview</h3>
                   <div className="rounded-xl border border-border overflow-hidden">
                     <table className="w-full text-xs">
                       <thead>
                         <tr className="border-b border-border bg-muted/40 text-muted-foreground">
-                          <th className="px-3 py-2 text-left font-medium">
-                            Avg Sell Price<br /><span className="text-[10px] font-normal">(Sell Date)</span>
-                          </th>
-                          <th className="px-3 py-2 text-left font-medium">
-                            Avg Buy Price<br /><span className="text-[10px] font-normal">(Buy Date)</span>
-                          </th>
+                          <th className="px-3 py-2 text-left font-medium">Avg Sell Price<br /><span className="text-[10px] font-normal">(Sell Date)</span></th>
+                          <th className="px-3 py-2 text-left font-medium">Avg Buy Price<br /><span className="text-[10px] font-normal">(Buy Date)</span></th>
                           <th className="px-3 py-2 text-right font-medium">Qty</th>
-                          <th className="px-3 py-2 text-right font-medium">P&amp;L</th>
+                          <th className="px-3 py-2 text-right font-medium">Net P&amp;L</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {sellTxns.map((tx) => {
-                          const profit = tx.meta?.profit ?? 0;
-                          return (
-                            <tr key={tx.id} className="border-b border-border/50 last:border-0 hover:bg-muted/20">
-                              <td className="px-3 py-2.5">
-                                <div className="font-mono font-semibold">{tx.price != null ? formatINR(tx.price) : "—"}</div>
-                                <div className="text-[10px] text-muted-foreground font-mono mt-0.5">{tx.date}</div>
-                              </td>
-                              <td className="px-3 py-2.5">
-                                <div className="font-mono font-semibold">
-                                  {tx.meta?.avgCost != null ? formatINR(tx.meta.avgCost) : "—"}
-                                </div>
-                                <div className="text-[10px] text-muted-foreground font-mono mt-0.5">
-                                  {tx.meta?.buyDate ?? "—"}
-                                </div>
-                              </td>
-                              <td className="px-3 py-2.5 text-right font-mono">{tx.qty}</td>
-                              <td className={`px-3 py-2.5 text-right font-mono font-semibold ${profit >= 0 ? "text-gain" : "text-loss"}`}>
-                                {profit >= 0 ? "+" : ""}₹{formatIN(profit)}
-                              </td>
-                            </tr>
-                          );
-                        })}
+                        {lotRows.map((r) => (
+                          <tr key={r.key} className="border-b border-border/50 last:border-0 hover:bg-muted/20">
+                            <td className="px-3 py-2.5">
+                              <div className="font-mono font-semibold">{r.sellPrice ? formatINR(r.sellPrice) : "—"}</div>
+                              <div className="text-[10px] text-muted-foreground font-mono mt-0.5">{r.sellDate}</div>
+                            </td>
+                            <td className="px-3 py-2.5">
+                              <div className="font-mono font-semibold">{r.buyPrice ? formatINR(r.buyPrice) : "—"}</div>
+                              <div className="text-[10px] text-muted-foreground font-mono mt-0.5">{r.buyDate || "—"}</div>
+                            </td>
+                            <td className="px-3 py-2.5 text-right font-mono">{r.qty}</td>
+                            <td className={`px-3 py-2.5 text-right font-mono font-semibold ${r.net >= 0 ? "text-gain" : "text-loss"}`}>
+                              {r.net >= 0 ? "+" : ""}₹{formatIN(r.net)}
+                            </td>
+                          </tr>
+                        ))}
                       </tbody>
                     </table>
                   </div>
