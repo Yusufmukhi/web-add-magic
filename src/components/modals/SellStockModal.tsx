@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { Holding } from "@/types/portfolio.types";
 import { formatINR, formatNumber } from "@/utils/formatters";
+import { previewFifoSell } from "@/utils/fifo";
 
 const todayStr = () => new Date().toISOString().slice(0, 10);
 
@@ -53,8 +54,17 @@ export function SellStockModal({ open, onClose, portfolio, prices, prefillTicker
   const gross = p * q;
   const charges = Math.max(0, parseFloat(chargesInput) || 0);
   const netProceeds = gross - charges;
-  const grossProfit = holding ? (p - holding.avgPrice) * q : 0;
-  const netProfit = grossProfit - charges;
+
+  // FIFO P&L preview — uses actual lot costs, not blended avgPrice
+  const fifoPreview = useMemo(() => {
+    if (!holding || !p || !q || q > holding.qty) return null;
+    const lots = holding.lots ?? [];
+    if (!lots.length) return null;
+    return previewFifoSell(lots, q, p, sellDate, charges);
+  }, [holding, p, q, sellDate, charges]);
+
+  // Oldest lot info for display
+  const oldestLot = holding?.lots?.[0];
 
   const handle = () => {
     if (!ticker || !p || !q) return setErr("Fill all fields");
@@ -75,12 +85,25 @@ export function SellStockModal({ open, onClose, portfolio, prices, prefillTicker
               <SelectContent>
                 {portfolio.map((h) => (
                   <SelectItem key={h.ticker} value={h.ticker}>
-                    {h.ticker} ({h.qty} shares @ {formatINR(h.avgPrice)})
+                    {h.ticker} ({h.qty} shares @ {formatINR(h.avgPrice)} avg)
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
+
+          {/* FIFO lot info banner */}
+          {oldestLot && (
+            <div className="sm:col-span-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+              <span className="font-semibold text-foreground">FIFO Cost Basis</span>
+              {" — "}oldest lot: <span className="font-mono">{formatINR(oldestLot.price)}</span> on{" "}
+              <span className="font-mono">{oldestLot.date}</span>
+              {holding && holding.lots && holding.lots.length > 1 && (
+                <span className="ml-1">({holding.lots.length} lots)</span>
+              )}
+            </div>
+          )}
+
           <div className="space-y-1.5">
             <Label htmlFor="s-pr">Price (₹)</Label>
             <Input id="s-pr" type="number" value={price} onChange={(e) => setPrice(e.target.value)} />
@@ -113,12 +136,53 @@ export function SellStockModal({ open, onClose, portfolio, prices, prefillTicker
             </p>
           </div>
 
+          {/* P&L summary — FIFO-based */}
           <div className="sm:col-span-2 grid grid-cols-2 gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm">
-            <div className="flex justify-between"><span className="text-muted-foreground">Gross</span><span className="font-mono">{formatINR(gross)}</span></div>
-            <div className="flex justify-between"><span className="text-muted-foreground">Net credit</span><span className="font-mono font-semibold">{formatINR(netProceeds)}</span></div>
-            <div className="flex justify-between"><span className="text-muted-foreground">Gross P&amp;L</span><span className={`font-mono ${grossProfit >= 0 ? "text-gain" : "text-loss"}`}>{grossProfit >= 0 ? "+" : ""}{formatNumber(grossProfit, 2)}</span></div>
-            <div className="flex justify-between"><span className="text-muted-foreground">Net P&amp;L</span><span className={`font-mono font-semibold ${netProfit >= 0 ? "text-gain" : "text-loss"}`}>{netProfit >= 0 ? "+" : ""}{formatNumber(netProfit, 2)}</span></div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Gross</span>
+              <span className="font-mono">{formatINR(gross)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Net credit</span>
+              <span className="font-mono font-semibold">{formatINR(netProceeds)}</span>
+            </div>
+
+            {fifoPreview ? (
+              <>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">FIFO cost</span>
+                  <span className="font-mono">{formatINR(fifoPreview.fifoAvgCost)}/sh</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Tax type</span>
+                  <span className={`font-mono font-semibold ${fifoPreview.dominantTaxType === "LTCG" ? "text-gain" : "text-amber-500"}`}>
+                    {fifoPreview.dominantTaxType}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Gross P&amp;L</span>
+                  <span className={`font-mono ${fifoPreview.grossProfit >= 0 ? "text-gain" : "text-loss"}`}>
+                    {fifoPreview.grossProfit >= 0 ? "+" : ""}{formatNumber(fifoPreview.grossProfit, 2)}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Net P&amp;L</span>
+                  <span className={`font-mono font-semibold ${fifoPreview.netProfit >= 0 ? "text-gain" : "text-loss"}`}>
+                    {fifoPreview.netProfit >= 0 ? "+" : ""}{formatNumber(fifoPreview.netProfit, 2)}
+                  </span>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Avg cost</span>
+                  <span className="font-mono">{holding ? formatINR(holding.avgPrice) : "—"}/sh</span>
+                </div>
+                <div className="col-span-1" />
+              </>
+            )}
           </div>
+
           {err && <p className="sm:col-span-2 text-xs text-loss">{err}</p>}
           <div className="sm:col-span-2 flex gap-2 pt-2">
             <Button variant="ghost" className="flex-1" onClick={onClose}>Cancel</Button>
