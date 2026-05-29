@@ -4,9 +4,10 @@
  * Rules:
  *  - Each BUY creates a new lot with a date, price, and qty.
  *  - Each SELL consumes lots oldest-first.
- *  - Profit per lot = (sellPrice - lotPrice) * qtySold.
+ *  - Gross profit per lot = (sellPrice - lotPrice) * qtySold  (before charges).
+ *  - Net profit = grossProfit - totalCharges.
  *  - Tax type per lot: LTCG if holdingDays >= 365, else STCG.
- *  - Charges are pro-rated across lots by qty.
+ *  - Charges are pro-rated across lots by qty for per-lot display only.
  */
 
 import type { FifoLot, FifoLotDetail } from "@/types/portfolio.types";
@@ -21,11 +22,11 @@ export function makeLot(date: string, price: number, qty: number): FifoLot {
 export interface FifoSellResult {
   /** Updated lots array (oldest fully consumed lots removed, partial lot reduced). */
   remainingLots: FifoLot[];
-  /** Per-lot detail for reporting / transaction meta. */
+  /** Per-lot detail for reporting / transaction meta (lotProfit here is NET of pro-rated charges). */
   lotDetails: FifoLotDetail[];
-  /** Total gross profit across all consumed lots (before charges). */
+  /** Total GROSS profit across all consumed lots (before ANY charges). */
   grossProfit: number;
-  /** Net profit after deducting charges. */
+  /** Net profit after deducting total charges from grossProfit. */
   netProfit: number;
   /** Weighted-average cost of lots consumed. */
   fifoAvgCost: number;
@@ -58,7 +59,8 @@ export function fifoSell(
 
   // Deep-copy lots so we don't mutate state
   const workingLots: FifoLot[] = lots.map((l) => ({ ...l }));
-  const lotDetails: FifoLotDetail[] = [];
+  // Per-lot details with GROSS lot profit (before charges)
+  const lotDetailsGross: FifoLotDetail[] = [];
   let remaining = sellQty;
 
   for (const lot of workingLots) {
@@ -69,14 +71,14 @@ export function fifoSell(
       Math.floor((Date.parse(sellDate) - Date.parse(lot.date)) / 86400000)
     );
     const taxType: "LTCG" | "STCG" = holdingDays >= 365 ? "LTCG" : "STCG";
-    // Gross profit for this slice (charges allocated later)
+    // Gross profit for this slice — BEFORE any charges
     const lotProfit = (sellPrice - lot.price) * take;
-    lotDetails.push({
+    lotDetailsGross.push({
       lotId: lot.id,
       lotDate: lot.date,
       lotPrice: lot.price,
       qtySold: take,
-      lotProfit,
+      lotProfit,       // gross at this point
       holdingDays,
       taxType,
     });
@@ -84,37 +86,38 @@ export function fifoSell(
     remaining -= take;
   }
 
-  // Pro-rate charges across lots by qty
-  const chargesPerShare = charges / sellQty;
-  const detailsWithCharges: FifoLotDetail[] = lotDetails.map((d) => ({
-    ...d,
-    lotProfit: d.lotProfit - chargesPerShare * d.qtySold,
-  }));
-
-  const grossProfit = lotDetails.reduce((s, d) => s + d.lotProfit, 0);
+  // Total GROSS profit (before charges)
+  const grossProfit = lotDetailsGross.reduce((s, d) => s + d.lotProfit, 0);
   const netProfit = grossProfit - charges;
+
+  // Pro-rate charges across lots by qty for per-lot net display
+  const chargesPerShare = charges / sellQty;
+  const lotDetails: FifoLotDetail[] = lotDetailsGross.map((d) => ({
+    ...d,
+    lotProfit: d.lotProfit - chargesPerShare * d.qtySold, // net per lot
+  }));
 
   // Remove fully consumed lots
   const remainingLots = workingLots.filter((l) => l.qty > 0);
 
   // Weighted-average cost of consumed lots
-  const totalSold = lotDetails.reduce((s, d) => s + d.qtySold, 0);
+  const totalSold = lotDetailsGross.reduce((s, d) => s + d.qtySold, 0);
   const fifoAvgCost =
     totalSold > 0
-      ? lotDetails.reduce((s, d) => s + d.lotPrice * d.qtySold, 0) / totalSold
+      ? lotDetailsGross.reduce((s, d) => s + d.lotPrice * d.qtySold, 0) / totalSold
       : 0;
 
   // Dominant tax type
-  const ltcgQty = lotDetails
+  const ltcgQty = lotDetailsGross
     .filter((d) => d.taxType === "LTCG")
     .reduce((s, d) => s + d.qtySold, 0);
   const dominantTaxType: "LTCG" | "STCG" = ltcgQty >= sellQty / 2 ? "LTCG" : "STCG";
 
-  const oldest = lotDetails[0];
+  const oldest = lotDetailsGross[0];
 
   return {
     remainingLots,
-    lotDetails: detailsWithCharges,
+    lotDetails,
     grossProfit,
     netProfit,
     fifoAvgCost,
