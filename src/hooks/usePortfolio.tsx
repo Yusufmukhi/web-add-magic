@@ -1,17 +1,42 @@
 import { useCallback } from "react";
 import type { Holding, Transaction } from "@/types/portfolio.types";
 import { useLocalStorage } from "./useLocalStorage";
+import { makeLot, fifoSell, recomputeHoldingMeta } from "@/utils/fifo";
 
 const todayStr = () => new Date().toISOString().slice(0, 10);
 const newId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
+/**
+ * Migrate a legacy holding (no lots array) to FIFO format.
+ * Creates a single synthetic lot using avgPrice and buyDate.
+ */
+function migrateLegacyHolding(h: Holding): Holding {
+  if (h.lots && h.lots.length > 0) return h;
+  return {
+    ...h,
+    lots: [
+      {
+        id: newId(),
+        date: h.buyDate || todayStr(),
+        price: h.avgPrice,
+        qty: h.qty,
+      },
+    ],
+  };
+}
+
 export function usePortfolioState() {
-  const [portfolio, setPortfolio] = useLocalStorage<Holding[]>("portfolio", []);
+  const [rawPortfolio, setPortfolio] = useLocalStorage<Holding[]>("portfolio", []);
   const [transactions, setTransactions] = useLocalStorage<Transaction[]>(
     "transactions",
     []
   );
   const [cashBalance, setCashBalance] = useLocalStorage<number>("cash_balance", 0);
+
+  // Always return migrated holdings so legacy data works transparently
+  const portfolio: Holding[] = rawPortfolio.map(migrateLegacyHolding);
+
+  // ─── Funds ───────────────────────────────────────────────────────────────
 
   const addFunds = useCallback(
     (amount: number, note?: string) => {
@@ -57,26 +82,51 @@ export function usePortfolioState() {
     [setCashBalance, setTransactions]
   );
 
+  // ─── BUY — creates a new FIFO lot ────────────────────────────────────────
+
   const buy = useCallback(
     (ticker: string, price: number, qty: number, buyDate: string): boolean => {
       const total = price * qty;
       if (total > cashBalance) return false;
+
       setCashBalance((c) => c - total);
-      let newAvg = price;
+
+      const newLot = makeLot(buyDate, price, qty);
+
       setPortfolio((prev) => {
-        const existing = prev.find((h) => h.ticker === ticker);
+        // Migrate all existing holdings first
+        const migrated = prev.map(migrateLegacyHolding);
+        const existing = migrated.find((h) => h.ticker === ticker);
+
         if (existing) {
-          const nq = existing.qty + qty;
-          const na = (existing.avgPrice * existing.qty + price * qty) / nq;
-          newAvg = na;
-          return prev.map((h) =>
+          // Append new lot (oldest first order maintained by insertion)
+          const updatedLots = [...existing.lots, newLot];
+          const { avgPrice, buyDate: newBuyDate } = recomputeHoldingMeta(updatedLots);
+          return migrated.map((h) =>
             h.ticker === ticker
-              ? { ...h, qty: nq, avgPrice: na, buyDate: h.buyDate || buyDate }
+              ? {
+                  ...h,
+                  qty: h.qty + qty,
+                  avgPrice,
+                  buyDate: newBuyDate,
+                  lots: updatedLots,
+                }
               : h
           );
         }
-        return [...prev, { ticker, qty, avgPrice: price, buyDate }];
+
+        return [
+          ...migrated,
+          {
+            ticker,
+            qty,
+            avgPrice: price,
+            buyDate,
+            lots: [newLot],
+          },
+        ];
       });
+
       setTransactions((prev) => [
         {
           id: newId(),
@@ -87,14 +137,21 @@ export function usePortfolioState() {
           price,
           amount: total,
           cashAfter: 0,
-          meta: { type: "Market Buy", avgCost: newAvg, buyDate },
+          meta: {
+            type: "Market Buy",
+            avgCost: price,
+            buyDate,
+          },
         },
         ...prev,
       ]);
+
       return true;
     },
     [cashBalance, setCashBalance, setPortfolio, setTransactions]
   );
+
+  // ─── SELL — consumes lots FIFO (oldest first) ─────────────────────────────
 
   const sell = useCallback(
     (
@@ -104,24 +161,39 @@ export function usePortfolioState() {
       sellDate: string,
       charges: number = 0
     ): boolean => {
-      const h = portfolio.find((p) => p.ticker === ticker);
-      if (!h || qty > h.qty) return false;
-      const gross = price * qty;
+      // Work on migrated portfolio snapshot
+      const migrated = rawPortfolio.map(migrateLegacyHolding);
+      const holding = migrated.find((h) => h.ticker === ticker);
+      if (!holding || qty > holding.qty) return false;
+
       const ch = Math.max(0, charges);
+      const fifoResult = fifoSell(holding.lots, qty, price, sellDate, ch);
+      if (!fifoResult) return false;
+
+      const gross = price * qty;
       const netProceeds = gross - ch;
-      const profit = (price - h.avgPrice) * qty - ch;
-      const profitPct = h.avgPrice > 0 ? (profit / (h.avgPrice * qty)) * 100 : 0;
-      const buyDateStr = h.buyDate || sellDate;
-      const holdingDays = Math.max(
-        0,
-        Math.floor((Date.parse(sellDate) - Date.parse(buyDateStr)) / 86400000)
-      );
+
       setCashBalance((c) => c + netProceeds);
-      setPortfolio((prev) =>
-        prev
-          .map((p) => (p.ticker === ticker ? { ...p, qty: p.qty - qty } : p))
-          .filter((p) => p.qty > 0)
-      );
+
+      setPortfolio((prev) => {
+        const m = prev.map(migrateLegacyHolding);
+        return m
+          .map((h) => {
+            if (h.ticker !== ticker) return h;
+            const newLots = fifoResult.remainingLots;
+            if (!newLots.length) return null; // will be filtered
+            const { avgPrice, buyDate } = recomputeHoldingMeta(newLots);
+            return {
+              ...h,
+              qty: h.qty - qty,
+              avgPrice,
+              buyDate,
+              lots: newLots,
+            };
+          })
+          .filter(Boolean) as Holding[];
+      });
+
       setTransactions((prev) => [
         {
           id: newId(),
@@ -133,25 +205,32 @@ export function usePortfolioState() {
           amount: netProceeds,
           cashAfter: 0,
           meta: {
-            profit,
-            profitPct,
-            holdingDays,
-            type: holdingDays >= 365 ? "LTCG" : "STCG",
-            avgCost: h.avgPrice,
-            buyDate: buyDateStr,
+            profit: fifoResult.netProfit,
+            profitPct:
+              fifoResult.fifoAvgCost > 0
+                ? (fifoResult.netProfit / (fifoResult.fifoAvgCost * qty)) * 100
+                : 0,
+            holdingDays: fifoResult.oldestLotHoldingDays,
+            type: fifoResult.dominantTaxType,
+            avgCost: fifoResult.fifoAvgCost,
+            buyDate: fifoResult.oldestLotDate,
             sellDate,
             charges: ch,
             grossAmount: gross,
+            fifoLots: fifoResult.lotDetails,
+            fifoAvgCost: fifoResult.fifoAvgCost,
           },
         },
         ...prev,
       ]);
+
       return true;
     },
-    [portfolio, setCashBalance, setPortfolio, setTransactions]
+    [rawPortfolio, setCashBalance, setPortfolio, setTransactions]
   );
 
-  /** Edit a holding's qty / avg buy price / first buy date. Does NOT touch cash or transactions. */
+  // ─── Edit holding — patches qty/avgPrice/buyDate AND rebuilds lots ────────
+
   const editHolding = useCallback(
     (
       ticker: string,
@@ -161,15 +240,19 @@ export function usePortfolioState() {
       setPortfolio((prev) =>
         prev.map((h) => {
           if (h.ticker !== ticker) return h;
-          const next: Holding = {
-            ...h,
-            qty: patch.qty != null && patch.qty > 0 ? patch.qty : h.qty,
-            avgPrice:
-              patch.avgPrice != null && patch.avgPrice > 0 ? patch.avgPrice : h.avgPrice,
-            buyDate: patch.buyDate || h.buyDate,
-          };
+          const newQty = patch.qty != null && patch.qty > 0 ? patch.qty : h.qty;
+          const newAvg =
+            patch.avgPrice != null && patch.avgPrice > 0 ? patch.avgPrice : h.avgPrice;
+          const newDate = patch.buyDate || h.buyDate;
+          // Rebuild as a single synthetic lot (edit replaces lot history)
           ok = true;
-          return next;
+          return {
+            ...h,
+            qty: newQty,
+            avgPrice: newAvg,
+            buyDate: newDate,
+            lots: [{ id: newId(), date: newDate, price: newAvg, qty: newQty }],
+          };
         })
       );
       return ok;
