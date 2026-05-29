@@ -44,7 +44,10 @@ export interface TxMeta {
   buyDate?: string;
   sellDate?: string;
   holdingDays?: number;
+  /** Net profit after charges (= grossProfit - charges). Angel One "Net Realised P&L". */
   profit?: number;
+  /** Gross profit before charges. Angel One "Realised P&L". */
+  grossProfit?: number;
   profitPct?: number;
   /** Total sell-side charges (brokerage + STT + GST + DP + …). */
   charges?: number;
