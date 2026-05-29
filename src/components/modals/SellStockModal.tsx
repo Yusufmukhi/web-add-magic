@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, CheckCircle2, Minus, Plus, TrendingUp, TrendingDown } from "lucide-react";
+import { Loader2, CheckCircle2, Minus, Plus, TrendingUp, TrendingDown, Info } from "lucide-react";
 import { MobileSheet } from "./MobileSheet";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -11,6 +11,9 @@ import { formatINR } from "@/utils/formatters";
 import { fifoSell } from "@/utils/fifo";
 
 const todayStr = () => new Date().toISOString().slice(0, 10);
+
+// Angel One flat brokerage default (₹5 per order on delivery)
+const DEFAULT_BROKERAGE = 5;
 
 interface Props {
   open: boolean;
@@ -26,7 +29,9 @@ export function SellStockModal({ open, onClose, portfolio, prices, prefillTicker
   const [price, setPrice] = useState("");
   const [qty, setQty] = useState("1");
   const [sellDate, setSellDate] = useState(todayStr());
-  const [charges, setCharges] = useState("0");
+  // Separate brokerage and other charges — matching Angel One contract note
+  const [brokerage, setBrokerage] = useState(String(DEFAULT_BROKERAGE));
+  const [otherCharges, setOtherCharges] = useState("0");
   const [err, setErr] = useState<string | null>(null);
   const [step, setStep] = useState<"form" | "success">("form");
   const [submitting, setSubmitting] = useState(false);
@@ -35,7 +40,8 @@ export function SellStockModal({ open, onClose, portfolio, prices, prefillTicker
 
   useEffect(() => {
     if (!open) return;
-    setSellDate(todayStr()); setErr(null); setCharges("0");
+    setSellDate(todayStr()); setErr(null);
+    setBrokerage(String(DEFAULT_BROKERAGE)); setOtherCharges("0");
     setStep("form");
     const t = prefillTicker ?? portfolio[0]?.ticker ?? "";
     setTicker(t);
@@ -49,17 +55,21 @@ export function SellStockModal({ open, onClose, portfolio, prices, prefillTicker
 
   const priceNum = parseFloat(price) || 0;
   const qtyNum = Math.max(0, parseInt(qty) || 0);
-  const chargesNum = Math.max(0, parseFloat(charges) || 0);
-  const gross = priceNum * qtyNum;
-  const netProceeds = gross - chargesNum;
+  const brokerageNum = Math.max(0, parseFloat(brokerage) || 0);
+  const otherChargesNum = Math.max(0, parseFloat(otherCharges) || 0);
+  // Total charges for entire order (Angel One: brokerage + STT + GST + DP...)
+  const totalChargesNum = brokerageNum + otherChargesNum;
+  const orderValue = priceNum * qtyNum;
+  // Net settlement value = order value - total charges
+  const netSettlement = orderValue - totalChargesNum;
   const maxQty = holding?.qty ?? 0;
 
   const fifoResult = useMemo(() => {
     if (!holding || !priceNum || !qtyNum || qtyNum > holding.qty) return null;
     const lots = holding.lots ?? [];
     if (!lots.length) return null;
-    return fifoSell(lots, qtyNum, priceNum, sellDate, chargesNum);
-  }, [holding, priceNum, qtyNum, sellDate, chargesNum]);
+    return fifoSell(lots, qtyNum, priceNum, sellDate, totalChargesNum);
+  }, [holding, priceNum, qtyNum, sellDate, totalChargesNum]);
 
   // Build FIFO lot breakdown string for display: "200@10 + 400@5"
   const fifoBreakdown = useMemo(() => {
@@ -75,7 +85,7 @@ export function SellStockModal({ open, onClose, portfolio, prices, prefillTicker
     if (priceNum <= 0) return setErr("Enter a valid price");
     setSubmitting(true);
     try {
-      if (onConfirm(ticker, priceNum, qtyNum, sellDate, chargesNum)) {
+      if (onConfirm(ticker, priceNum, qtyNum, sellDate, totalChargesNum)) {
         setStep("success");
         setTimeout(() => onClose(), 2000);
       } else {
@@ -102,29 +112,36 @@ export function SellStockModal({ open, onClose, portfolio, prices, prefillTicker
               {qtyNum} × {ticker} @ {formatINR(priceNum)}
             </p>
           </div>
+          {/* Angel One-style settlement breakdown */}
           <div className="rounded-xl border border-border bg-muted/40 px-4 py-3 w-full max-w-xs space-y-2 text-sm">
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Gross Amount</span>
-              <span className="font-mono font-bold">{formatINR(gross)}</span>
+            <div className="flex justify-between text-muted-foreground">
+              <span>Order Value</span>
+              <span className="font-mono">{formatINR(orderValue)}</span>
             </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Charges</span>
-              <span className="font-mono">−{formatINR(chargesNum)}</span>
+            <div className="flex justify-between text-muted-foreground">
+              <span>Brokerage</span>
+              <span className="font-mono">−{formatINR(brokerageNum)}</span>
+            </div>
+            <div className="flex justify-between text-muted-foreground">
+              <span>Charges (STT + GST…)</span>
+              <span className="font-mono">−{formatINR(otherChargesNum)}</span>
             </div>
             <div className="h-px bg-border" />
-            <div className="flex justify-between">
-              <span className="font-semibold">Net Proceeds</span>
-              <span className="font-mono font-bold">{formatINR(netProceeds)}</span>
+            <div className="flex justify-between font-semibold">
+              <span>Net Settlement Value</span>
+              <span className="font-mono font-bold text-foreground">{formatINR(netSettlement)}</span>
             </div>
             {fifoResult && (
               <>
                 <div className="h-px bg-border" />
                 <div className="flex justify-between text-xs">
-                  <span className="text-muted-foreground">FIFO Avg Buy</span>
-                  <span className="font-mono">{formatINR(fifoResult.fifoAvgCost)}/sh</span>
+                  <span className="text-muted-foreground">Realised P&L (gross)</span>
+                  <span className={`font-mono ${fifoResult.grossProfit >= 0 ? "text-green-600" : "text-destructive"}`}>
+                    {fifoResult.grossProfit >= 0 ? "+" : ""}{formatINR(fifoResult.grossProfit)}
+                  </span>
                 </div>
                 <div className="flex justify-between text-xs font-semibold">
-                  <span>Net P&L</span>
+                  <span>Net Realised P&L</span>
                   <span className={`font-mono ${fifoResult.netProfit >= 0 ? "text-green-600" : "text-destructive"}`}>
                     {fifoResult.netProfit >= 0 ? "+" : ""}{formatINR(fifoResult.netProfit)}
                   </span>
@@ -239,21 +256,56 @@ export function SellStockModal({ open, onClose, portfolio, prices, prefillTicker
           </div>
         </div>
 
-        {/* Charges */}
-        <div className="space-y-1.5">
-          <Label htmlFor="s-charges" className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Charges (₹)
-          </Label>
-          <Input
-            id="s-charges"
-            type="number"
-            min="0"
-            step="0.01"
-            value={charges}
-            onChange={(e) => setCharges(e.target.value)}
-            className="font-mono"
-            placeholder="0"
-          />
+        {/* Charges section — Angel One style: Brokerage + Other Charges */}
+        <div className="rounded-xl border border-border bg-muted/20 px-4 py-3 space-y-3">
+          <div className="flex items-center gap-1.5">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Transaction Charges</p>
+            <Info className="h-3 w-3 text-muted-foreground/60" />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            {/* Brokerage */}
+            <div className="space-y-1.5">
+              <Label htmlFor="s-brokerage" className="text-xs text-muted-foreground">
+                Brokerage (₹)
+              </Label>
+              <Input
+                id="s-brokerage"
+                type="number"
+                min="0"
+                step="0.01"
+                value={brokerage}
+                onChange={(e) => setBrokerage(e.target.value)}
+                className="font-mono text-sm"
+                placeholder="5.00"
+              />
+            </div>
+
+            {/* STT + GST + DP + others */}
+            <div className="space-y-1.5">
+              <Label htmlFor="s-other-charges" className="text-xs text-muted-foreground">
+                Charges (STT+GST…)
+              </Label>
+              <Input
+                id="s-other-charges"
+                type="number"
+                min="0"
+                step="0.01"
+                value={otherCharges}
+                onChange={(e) => setOtherCharges(e.target.value)}
+                className="font-mono text-sm"
+                placeholder="0.00"
+              />
+            </div>
+          </div>
+
+          {/* Total charges line */}
+          {totalChargesNum > 0 && (
+            <div className="flex justify-between text-xs pt-0.5 border-t border-border">
+              <span className="text-muted-foreground">Total Charges</span>
+              <span className="font-mono font-semibold">{formatINR(totalChargesNum)}</span>
+            </div>
+          )}
         </div>
 
         {/* FIFO Lot Breakdown — shown when lots are available */}
@@ -296,21 +348,25 @@ export function SellStockModal({ open, onClose, portfolio, prices, prefillTicker
           </div>
         )}
 
-        {/* Summary */}
+        {/* Angel One-style order summary */}
         <div className="rounded-xl border border-border bg-muted/30 px-4 py-3 space-y-2">
           <div className="space-y-1.5 text-sm">
             <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">Gross Amount</span>
-              <span className="font-mono">{formatINR(gross)}</span>
+              <span className="text-muted-foreground">Order Value</span>
+              <span className="font-mono">{formatINR(orderValue)}</span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">Charges</span>
-              <span className="font-mono">−{formatINR(chargesNum)}</span>
+              <span className="text-muted-foreground">Brokerage</span>
+              <span className="font-mono">−{formatINR(brokerageNum)}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Charges (STT + GST…)</span>
+              <span className="font-mono">−{formatINR(otherChargesNum)}</span>
             </div>
             <div className="h-px bg-border" />
             <div className="flex items-center justify-between font-semibold">
-              <span>Net Proceeds</span>
-              <span className="font-mono text-base">{formatINR(netProceeds)}</span>
+              <span>Net Settlement Value</span>
+              <span className="font-mono text-base">{formatINR(netSettlement)}</span>
             </div>
             {holding && (
               <>
@@ -326,6 +382,12 @@ export function SellStockModal({ open, onClose, portfolio, prices, prefillTicker
                 <div className="flex items-center justify-between text-xs">
                   <span className="text-muted-foreground">FIFO Avg Cost (lots consumed)</span>
                   <span className="font-mono">{formatINR(fifoResult.fifoAvgCost)}/sh</span>
+                </div>
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground">Realised P&L (gross)</span>
+                  <span className={`font-mono ${fifoResult.grossProfit >= 0 ? "text-green-600" : "text-destructive"}`}>
+                    {fifoResult.grossProfit >= 0 ? "+" : ""}{formatINR(fifoResult.grossProfit)}
+                  </span>
                 </div>
                 <div className="flex items-center justify-between text-xs font-semibold">
                   <span className="flex items-center gap-1">
