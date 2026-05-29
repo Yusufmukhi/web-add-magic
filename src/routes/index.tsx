@@ -76,8 +76,8 @@ function DashboardPage() {
   };
 
   const handleBuy = useCallback(
-    (ticker: string, price: number, qty: number, date: string) => {
-      const ok = buy(ticker, price, qty, date);
+    (ticker: string, price: number, qty: number, date: string, chargesPerShare: number) => {
+      const ok = buy(ticker, price, qty, date, chargesPerShare);
       if (!ok) { toast.error("Insufficient cash balance"); return false; }
       if (!tickers.includes(ticker)) add(ticker);
       toast.success(`Bought ${qty} × ${ticker} @ ₹${price.toFixed(2)}`);
