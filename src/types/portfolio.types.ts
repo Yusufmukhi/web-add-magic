@@ -40,6 +40,10 @@ export interface FifoLotDetail {
 
 export interface TxMeta {
   type?: string;
+  /** Raw trading price per share (before charges). Only on BUY. */
+  tradingPrice?: number;
+  /** Charges per share. Only on BUY. */
+  chargesPerShare?: number;
   avgCost?: number;
   buyDate?: string;
   sellDate?: string;
