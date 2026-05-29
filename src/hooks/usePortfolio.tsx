@@ -205,7 +205,10 @@ export function usePortfolioState() {
           amount: netProceeds,
           cashAfter: 0,
           meta: {
+            // netProfit = grossProfit - charges (Angel One "Net Realised P&L")
             profit: fifoResult.netProfit,
+            // grossProfit = before charges (Angel One "Realised P&L")
+            grossProfit: fifoResult.grossProfit,
             profitPct:
               fifoResult.fifoAvgCost > 0
                 ? (fifoResult.netProfit / (fifoResult.fifoAvgCost * qty)) * 100
