@@ -10,6 +10,7 @@ import { BuyStockModal } from "@/components/modals/BuyStockModal";
 import { SellStockModal } from "@/components/modals/SellStockModal";
 import { StatCard } from "./StatCard";
 import { StockChart } from "./StockChart";
+import { FifoLotsTable } from "@/components/portfolio/FifoLotsTable";
 import { formatINR, formatMarketCap, formatNumber, formatPct, formatChangePct } from "@/utils/formatters";
 import { changeColorClass } from "@/utils/colorHelpers";
 import { xirr } from "@/utils/finance";
@@ -169,6 +170,16 @@ export function HoldingDetailPage({ symbol, onBack }: Props) {
                 <StatCard label="First Purchase" value={holding.buyDate} />
               )}
             </div>
+
+            {/* FIFO Lots breakdown */}
+            {holding.lots && holding.lots.length > 0 && (
+              <div className="space-y-1.5 mt-3">
+                <h2 className="text-[13px] font-medium text-muted-foreground uppercase tracking-wider">
+                  Open Lots — FIFO Cost Basis
+                </h2>
+                <FifoLotsTable lots={holding.lots} cmp={cmp} />
+              </div>
+            )}
           </div>
         )}
 
