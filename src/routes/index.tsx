@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { Home as HomeIcon, Briefcase, LineChart, ListChecks, Receipt, CalendarRange, Settings as SettingsIcon } from "lucide-react";
+import { previewFifoSell } from "@/utils/fifo";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { BottomNav, type NavTab } from "@/components/layout/BottomNav";
 import { HomeDashboard } from "@/components/home/HomeDashboard";
@@ -87,11 +88,16 @@ function DashboardPage() {
 
   const handleSell = useCallback(
     (ticker: string, price: number, qty: number, date: string, charges: number) => {
+      // Capture FIFO preview profit BEFORE sell mutates lots
+      const holding = portfolio.find((h) => h.ticker === ticker);
+      const preview = holding?.lots?.length
+        ? previewFifoSell(holding.lots, qty, price, date, charges)
+        : null;
       const ok = sell(ticker, price, qty, date, charges);
       if (!ok) { toast.error("Sell failed"); return false; }
-      const pl = portfolio.find((h) => h.ticker === ticker);
-      const profit = pl ? (price - pl.avgPrice) * qty - charges : 0;
-      toast.success(`Sold ${qty} × ${ticker} | Net P&L: ${profit >= 0 ? "+" : ""}₹${profit.toFixed(2)}`);
+      const profit = preview?.netProfit ?? 0;
+      const taxTag = preview ? ` [${preview.dominantTaxType}]` : "";
+      toast.success(`Sold ${qty} × ${ticker} | Net P&L: ${profit >= 0 ? "+" : ""}₹${profit.toFixed(2)}${taxTag}`);
       return true;
     },
     [sell, portfolio]
