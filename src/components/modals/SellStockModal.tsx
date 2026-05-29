@@ -95,7 +95,7 @@ export function SellStockModal({ open, onClose, portfolio, prices, prefillTicker
     }
   };
 
-  // ── Success screen ────────────────────────────────────────────────────────
+  // â”€â”€ Success screen â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   if (step === "success") {
     return (
       <MobileSheet open={open} onClose={onClose} title="">
@@ -106,7 +106,7 @@ export function SellStockModal({ open, onClose, portfolio, prices, prefillTicker
           <div>
             <p className="text-lg font-bold text-foreground">Sell Order Placed!</p>
             <p className="text-sm text-muted-foreground mt-1">
-              {qtyNum} × {ticker} @ {formatINR(priceNum)}
+              {qtyNum} Ã— {ticker} @ {formatINR(priceNum)}
             </p>
           </div>
           {fifoResult && (
@@ -128,7 +128,7 @@ export function SellStockModal({ open, onClose, portfolio, prices, prefillTicker
                     : "bg-amber-500/15 text-amber-600 border-amber-500/30"
                 } font-semibold`}
               >
-                {fifoResult.dominantTaxType} · {fifoResult.dominantTaxType === "LTCG" ? "Long-term" : "Short-term"} Capital Gain
+                {fifoResult.dominantTaxType} Â· {fifoResult.dominantTaxType === "LTCG" ? "Long-term" : "Short-term"} Capital Gain
               </Badge>
             </div>
           )}
@@ -137,7 +137,7 @@ export function SellStockModal({ open, onClose, portfolio, prices, prefillTicker
     );
   }
 
-  // ── Confirm screen ────────────────────────────────────────────────────────
+  // â”€â”€ Confirm screen â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   if (step === "confirm") {
     return (
       <MobileSheet open={open} onClose={onClose} title="Confirm Sell Order">
@@ -146,7 +146,7 @@ export function SellStockModal({ open, onClose, portfolio, prices, prefillTicker
             <div className="flex items-start justify-between">
               <div>
                 <p className="font-mono font-bold text-base">{ticker}</p>
-                <p className="text-xs text-muted-foreground">{holding ? `${holding.qty} shares held · Avg ${formatINR(holding.avgPrice)}` : ""}</p>
+                <p className="text-xs text-muted-foreground">{holding ? `${holding.qty} shares held Â· Avg ${formatINR(holding.avgPrice)}` : ""}</p>
               </div>
               <Badge className="bg-destructive/15 text-destructive border-destructive/30 font-bold">SELL</Badge>
             </div>
@@ -182,7 +182,7 @@ export function SellStockModal({ open, onClose, portfolio, prices, prefillTicker
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-muted-foreground">Less: Charges</span>
-                <span className="font-mono text-destructive">− {formatINR(chargesNum)}</span>
+                <span className="font-mono text-destructive">âˆ’ {formatINR(chargesNum)}</span>
               </div>
               <div className="h-px bg-border" />
               <div className="flex items-center justify-between font-semibold">
@@ -246,7 +246,7 @@ export function SellStockModal({ open, onClose, portfolio, prices, prefillTicker
                   {fifoResult.lotDetails.map((lot, i) => (
                     <div key={lot.lotId} className="px-4 py-2.5 text-xs grid grid-cols-3 gap-1">
                       <div>
-                        <p className="text-muted-foreground">Lot {i + 1} · {lot.lotDate}</p>
+                        <p className="text-muted-foreground">Lot {i + 1} Â· {lot.lotDate}</p>
                         <p className="font-mono font-semibold">{lot.qtySold} sh @ {formatINR(lot.lotPrice)}</p>
                       </div>
                       <div className="text-center">
@@ -292,7 +292,7 @@ export function SellStockModal({ open, onClose, portfolio, prices, prefillTicker
               onClick={handleConfirm}
               disabled={submitting}
             >
-              {submitting ? <><Loader2 className="mr-1.5 h-4 w-4 animate-spin" />Placing…</> : "Confirm Sell"}
+              {submitting ? <><Loader2 className="mr-1.5 h-4 w-4 animate-spin" />Placingâ€¦</> : "Confirm Sell"}
             </Button>
           </div>
         </div>
@@ -300,7 +300,7 @@ export function SellStockModal({ open, onClose, portfolio, prices, prefillTicker
     );
   }
 
-  // ── Main order form ───────────────────────────────────────────────────────
+  // â”€â”€ Main order form â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   return (
     <MobileSheet open={open} onClose={onClose} title="">
       {/* Red header */}
@@ -310,7 +310,7 @@ export function SellStockModal({ open, onClose, portfolio, prices, prefillTicker
             <>
               <p className="font-mono text-sm font-bold text-white">{ticker}</p>
               <p className="text-xs text-red-100">
-                {holding ? `${holding.qty} shares held · Avg ${formatINR(holding.avgPrice)}` : ""}
+                {holding ? `${holding.qty} shares held Â· Avg ${formatINR(holding.avgPrice)}` : ""}
               </p>
             </>
           ) : (
@@ -332,7 +332,7 @@ export function SellStockModal({ open, onClose, portfolio, prices, prefillTicker
 
       <div className="space-y-4">
 
-        {/* ── Stock selector ── */}
+        {/* â”€â”€ Stock selector â”€â”€ */}
         <div className="space-y-1.5">
           <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Symbol</Label>
           <Select value={ticker} onValueChange={setTicker}>
@@ -344,7 +344,7 @@ export function SellStockModal({ open, onClose, portfolio, prices, prefillTicker
                 <SelectItem key={h.ticker} value={h.ticker}>
                   <span className="font-mono font-semibold">{h.ticker}</span>
                   <span className="ml-2 text-muted-foreground text-xs">
-                    {h.qty} sh · Avg {formatINR(h.avgPrice)}
+                    {h.qty} sh Â· Avg {formatINR(h.avgPrice)}
                   </span>
                 </SelectItem>
               ))}
@@ -371,10 +371,10 @@ export function SellStockModal({ open, onClose, portfolio, prices, prefillTicker
           </div>
         )}
 
-        {/* ── Price field ── */}
+        {/* â”€â”€ Price field â”€â”€ */}
         <div className="space-y-1.5">
           <Label htmlFor="s-price" className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Sell Price per Share (₹)
+            Sell Price per Share (â‚¹)
           </Label>
           <Input
             id="s-price"
@@ -388,12 +388,12 @@ export function SellStockModal({ open, onClose, portfolio, prices, prefillTicker
           />
           {ticker && prices[ticker] && priceNum !== prices[ticker] && priceNum > 0 && (
             <p className="text-[11px] text-muted-foreground">
-              LTP: {formatINR(prices[ticker])} · diff {priceNum > prices[ticker] ? "+" : ""}{((priceNum - prices[ticker]) / prices[ticker] * 100).toFixed(2)}%
+              LTP: {formatINR(prices[ticker])} Â· diff {priceNum > prices[ticker] ? "+" : ""}{((priceNum - prices[ticker]) / prices[ticker] * 100).toFixed(2)}%
             </p>
           )}
         </div>
 
-        {/* ── Qty + Date row ── */}
+        {/* â”€â”€ Qty + Date row â”€â”€ */}
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5">
             <Label htmlFor="s-qty" className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -433,7 +433,7 @@ export function SellStockModal({ open, onClose, portfolio, prices, prefillTicker
                   className="text-destructive font-semibold hover:underline"
                 >
                   MAX
-                </button>
+                  </button>
               </div>
             )}
           </div>
@@ -445,4 +445,156 @@ export function SellStockModal({ open, onClose, portfolio, prices, prefillTicker
             <Input
               id="s-date"
               type="date"
-              value={sellDate
+              value={sellDate}
+              onChange={(e) => setSellDate(e.target.value)}
+              className="font-mono"
+            />
+          </div>
+        </div>
+
+        {/* â”€â”€ Charges â”€â”€ */}
+        <div className="space-y-1.5">
+          <Label htmlFor="s-charges" className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Total Charges (â‚¹)
+            <span className="ml-1.5 normal-case font-normal text-muted-foreground">(brokerage + STT + GST + DP etc.)</span>
+          </Label>
+          <Input
+            id="s-charges"
+            type="number"
+            min="0"
+            step="0.01"
+            value={charges}
+            onChange={(e) => setCharges(e.target.value)}
+            className="font-mono"
+            placeholder="0"
+          />
+        </div>
+
+        {/* â”€â”€ Live P&L Preview (FIFO) â”€â”€ */}
+        {fifoResult && qtyNum > 0 && (
+          <div className="rounded-xl border border-border overflow-hidden">
+            <div className="bg-muted/40 px-4 py-2.5">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">P&L Preview (FIFO)</p>
+            </div>
+            <div className="px-4 py-3 space-y-2 text-sm">
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">FIFO Avg Cost</span>
+                <span className="font-mono">{formatINR(fifoResult.fifoAvgCost)}/sh</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Gross P&L</span>
+                <span className={`font-mono font-semibold ${fifoResult.grossProfit >= 0 ? "text-green-600" : "text-destructive"}`}>
+                  {fifoResult.grossProfit >= 0 ? "+" : ""}{formatINR(fifoResult.grossProfit)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between font-semibold">
+                <span>Net Realised P&L</span>
+                <span className={`font-mono text-base ${plColor}`}>
+                  {fifoResult.netProfit >= 0 ? "+" : ""}{formatINR(fifoResult.netProfit)}
+                  <span className="text-xs font-normal ml-1 opacity-70">
+                    ({fifoResult.netProfit >= 0 ? "+" : ""}{((fifoResult.netProfit / (fifoResult.fifoAvgCost * qtyNum || 1)) * 100).toFixed(2)}%)
+                  </span>
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground text-xs">Tax Classification</span>
+                <Badge
+                  variant="outline"
+                  className={`text-[11px] font-bold ${
+                    fifoResult.dominantTaxType === "LTCG"
+                      ? "border-green-500/40 text-green-600"
+                      : "border-amber-500/40 text-amber-600"
+                  }`}
+                >
+                  {fifoResult.dominantTaxType}
+                </Badge>
+              </div>
+
+              {/* Expandable lot breakdown */}
+              {fifoResult.lotDetails.length > 0 && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setShowLotDetail((o) => !o)}
+                    className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground mt-1"
+                  >
+                    {showLotDetail ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                    {showLotDetail ? "Hide" : "Show"} lot breakdown ({fifoResult.lotDetails.length} lot{fifoResult.lotDetails.length > 1 ? "s" : ""})
+                  </button>
+
+                  {showLotDetail && (
+                    <div className="mt-1 space-y-1.5 border-t border-border pt-2">
+                      {fifoResult.lotDetails.map((lot, i) => (
+                        <div key={lot.lotId} className="flex items-center justify-between text-xs rounded-lg border border-border bg-muted/30 px-3 py-2">
+                          <div>
+                            <p className="font-mono font-semibold">Lot {i + 1} Â· {lot.qtySold} sh</p>
+                            <p className="text-muted-foreground">Bought {lot.lotDate} @ {formatINR(lot.lotPrice)}</p>
+                            <p className="text-muted-foreground">{lot.holdingDays}d held</p>
+                          </div>
+                          <div className="text-right">
+                            <Badge
+                              variant="outline"
+                              className={`text-[10px] font-bold mb-1 ${
+                                lot.taxType === "LTCG"
+                                  ? "border-green-500/40 text-green-600"
+                                  : "border-amber-500/40 text-amber-600"
+                              }`}
+                            >
+                              {lot.taxType}
+                            </Badge>
+                            <p className={`font-mono font-bold ${lot.lotProfit >= 0 ? "text-green-600" : "text-destructive"}`}>
+                              {lot.lotProfit >= 0 ? "+" : ""}{formatINR(lot.lotProfit)}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* â”€â”€ Total Price summary bar â”€â”€ */}
+        <div className="rounded-xl border border-border bg-muted/30 px-4 py-3 space-y-2">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Order Details</p>
+          <div className="space-y-1.5 text-sm">
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Gross Proceeds</span>
+              <span className="font-mono">{formatINR(gross)}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Less: Charges</span>
+              <span className="font-mono text-destructive">âˆ’ {formatINR(chargesNum)}</span>
+            </div>
+            <div className="h-px bg-border" />
+            <div className="flex items-center justify-between font-semibold">
+              <span>Total Price (Net Proceeds)</span>
+              <span className="font-mono text-base">{formatINR(netProceeds)}</span>
+            </div>
+          </div>
+        </div>
+
+        {err && (
+          <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/8 px-3 py-2 text-xs text-destructive">
+            <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            {err}
+          </div>
+        )}
+
+        <div className="flex gap-2 pt-1">
+          <Button variant="outline" className="flex-1" onClick={onClose}>Cancel</Button>
+          <Button
+            variant="destructive"
+            className="flex-1 font-bold"
+            onClick={handleReview}
+            disabled={!ticker || !holding || qtyNum <= 0 || qtyNum > maxQty || priceNum <= 0}
+          >
+            Review Order
+          </Button>
+        </div>
+      </div>
+    </MobileSheet>
+  );
+}
