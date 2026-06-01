@@ -221,7 +221,7 @@ function DashboardPage() {
           />
         </section>
 
-        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as NavTab)} className="space-y-5">
+        <Tabs value={activeTab} onValueChange={(v) => { if (v === "finance") { navigate({ to: "/finance" }); } else { setActiveTab(v as NavTab); } }} className="space-y-5">
           <div className="sticky top-0 z-10 -mx-3 hidden overflow-x-auto bg-background/95 px-3 py-1 backdrop-blur md:block sm:-mx-6 sm:px-6">
             <TabsList className="inline-flex h-auto w-max bg-card creative:shadow-soft minimal:rounded-none minimal:border-b minimal:border-border minimal:bg-transparent minimal:p-0">
               <TabsTrigger value="home" className="gap-1.5 minimal:rounded-none minimal:border-b-2 minimal:border-transparent minimal:bg-transparent minimal:data-[state=active]:border-primary minimal:data-[state=active]:bg-transparent minimal:data-[state=active]:shadow-none">
@@ -242,7 +242,7 @@ function DashboardPage() {
               <TabsTrigger value="planning" className="gap-1.5 minimal:rounded-none minimal:border-b-2 minimal:border-transparent minimal:bg-transparent minimal:data-[state=active]:border-primary minimal:data-[state=active]:bg-transparent minimal:data-[state=active]:shadow-none">
                 <CalendarRange className="h-3.5 w-3.5" /> Planning
               </TabsTrigger>
-              <TabsTrigger value="finance" className="gap-1.5 minimal:rounded-none minimal:border-b-2 minimal:border-transparent minimal:bg-transparent minimal:data-[state=active]:border-primary minimal:data-[state=active]:bg-transparent minimal:data-[state=active]:shadow-none" onClick={() => navigate({ to: "/finance" })}>
+              <TabsTrigger value="finance" className="gap-1.5 minimal:rounded-none minimal:border-b-2 minimal:border-transparent minimal:bg-transparent minimal:data-[state=active]:border-primary minimal:data-[state=active]:bg-transparent minimal:data-[state=active]:shadow-none" >
                 <Wallet className="h-3.5 w-3.5" /> Finance
               </TabsTrigger>
               <TabsTrigger value="settings" className="gap-1.5 minimal:rounded-none minimal:border-b-2 minimal:border-transparent minimal:bg-transparent minimal:data-[state=active]:border-primary minimal:data-[state=active]:bg-transparent minimal:data-[state=active]:shadow-none">
