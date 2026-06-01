@@ -9,3 +9,6 @@ export function useFinance(): FinanceContextValue {
   }
   return ctx;
 }
+
+// Alias for backward compatibility
+export const useFinanceState = useFinance;
