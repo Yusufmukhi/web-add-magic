@@ -1,4 +1,3 @@
-
 import { Home, ListChecks, Briefcase, LineChart, Receipt, Settings as SettingsIcon, Wallet } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -69,3 +68,5 @@ export function BottomNav({ value, onChange }: Props) {
     </nav>
   );
 }
+
+export default BottomNav;
