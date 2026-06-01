@@ -1,14 +1,14 @@
-import { Home, ListChecks, Briefcase, LineChart, Receipt, Settings as SettingsIcon, Wallet } from "lucide-react";
+import { Home, ListChecks, Briefcase, LineChart, Receipt, Settings as SettingsIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-export type NavTab = "home" | "watchlist" | "portfolio" | "analytics" | "transactions" | "settings" | "planning" | "finance";
+export type NavTab = "home" | "watchlist" | "portfolio" | "analytics" | "transactions" | "settings" | "planning";
 
 const TABS: { id: NavTab; label: string; icon: typeof Home }[] = [
   { id: "home", label: "Home", icon: Home },
   { id: "watchlist", label: "Watchlist", icon: ListChecks },
   { id: "portfolio", label: "Portfolio", icon: Briefcase },
   { id: "analytics", label: "Stats", icon: LineChart },
-  { id: "finance", label: "Finance", icon: Wallet },
+  { id: "transactions", label: "Orders", icon: Receipt },
   { id: "settings", label: "Settings", icon: SettingsIcon },
 ];
 
@@ -68,5 +68,3 @@ export function BottomNav({ value, onChange }: Props) {
     </nav>
   );
 }
-
-export default BottomNav;
