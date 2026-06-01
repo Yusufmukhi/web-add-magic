@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState } from "react";
-import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { toast } from "sonner";
-import { Home as HomeIcon, Briefcase, LineChart, ListChecks, Receipt, CalendarRange, Settings as SettingsIcon, Wallet } from "lucide-react";
+import { Home as HomeIcon, Briefcase, LineChart, ListChecks, Receipt, CalendarRange, Settings as SettingsIcon } from "lucide-react";
 import { previewFifoSell } from "@/utils/fifo";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { BottomNav, type NavTab } from "@/components/layout/BottomNav";
@@ -242,9 +242,6 @@ function DashboardPage() {
               <TabsTrigger value="planning" className="gap-1.5 minimal:rounded-none minimal:border-b-2 minimal:border-transparent minimal:bg-transparent minimal:data-[state=active]:border-primary minimal:data-[state=active]:bg-transparent minimal:data-[state=active]:shadow-none">
                 <CalendarRange className="h-3.5 w-3.5" /> Planning
               </TabsTrigger>
-              <Link to="/finance" className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 text-muted-foreground hover:text-foreground minimal:rounded-none minimal:border-b-2 minimal:border-transparent minimal:bg-transparent">
-                <Wallet className="h-3.5 w-3.5" /> Finance
-              </Link>
               <TabsTrigger value="settings" className="gap-1.5 minimal:rounded-none minimal:border-b-2 minimal:border-transparent minimal:bg-transparent minimal:data-[state=active]:border-primary minimal:data-[state=active]:bg-transparent minimal:data-[state=active]:shadow-none">
                 <SettingsIcon className="h-3.5 w-3.5" /> Settings
               </TabsTrigger>
@@ -316,8 +313,6 @@ function DashboardPage() {
             />
           </TabsContent>
 
-                    <TabsContent value="finance">{/* Navigates to /finance route via tab trigger */}</TabsContent>
-
           <TabsContent value="settings">
             <SettingsPanel
               portfolio={portfolio}
@@ -378,7 +373,7 @@ function DashboardPage() {
         confirmLabel="Delete holding"
       />
 
-      <BottomNav value={activeTab} onChange={(t) => { if (t === "finance") { navigate({ to: "/finance" }); } else { setActiveTab(t); } }} />
+      <BottomNav value={activeTab} onChange={setActiveTab} />
     </div>
   );
 }
