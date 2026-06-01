@@ -1,14 +1,14 @@
-import { Home, ListChecks, Briefcase, LineChart, Receipt, Settings as SettingsIcon } from "lucide-react";
+import { Home, ListChecks, Briefcase, LineChart, Receipt, Settings as SettingsIcon, Wallet } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-export type NavTab = "home" | "watchlist" | "portfolio" | "analytics" | "transactions" | "settings" | "planning";
+export type NavTab = "home" | "watchlist" | "portfolio" | "analytics" | "transactions" | "settings" | "planning" | "finance";
 
 const TABS: { id: NavTab; label: string; icon: typeof Home }[] = [
   { id: "home", label: "Home", icon: Home },
   { id: "watchlist", label: "Watchlist", icon: ListChecks },
   { id: "portfolio", label: "Portfolio", icon: Briefcase },
   { id: "analytics", label: "Stats", icon: LineChart },
-  { id: "transactions", label: "Orders", icon: Receipt },
+  { id: "finance", label: "Finance", icon: Wallet },
   { id: "settings", label: "Settings", icon: SettingsIcon },
 ];
 
