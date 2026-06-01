@@ -10,12 +10,19 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as FinanceRouteImport } from './routes/finance'
 import { Route as StockSymbolRouteImport } from './routes/stock/$symbol'
 import { Route as HoldingSymbolRouteImport } from './routes/holding/$symbol'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+
+const FinanceRoute = FinanceRouteImport.update({
+  id: '/finance',
+  path: '/finance',
   getParentRoute: () => rootRouteImport,
 } as any)
 
@@ -33,30 +40,34 @@ const HoldingSymbolRoute = HoldingSymbolRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/finance': typeof FinanceRoute
   '/stock/$symbol': typeof StockSymbolRoute
   '/holding/$symbol': typeof HoldingSymbolRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/finance': typeof FinanceRoute
   '/stock/$symbol': typeof StockSymbolRoute
   '/holding/$symbol': typeof HoldingSymbolRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/finance': typeof FinanceRoute
   '/stock/$symbol': typeof StockSymbolRoute
   '/holding/$symbol': typeof HoldingSymbolRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/stock/$symbol' | '/holding/$symbol'
+  fullPaths: '/' | '/finance' | '/stock/$symbol' | '/holding/$symbol'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/stock/$symbol' | '/holding/$symbol'
-  id: '__root__' | '/' | '/stock/$symbol' | '/holding/$symbol'
+  to: '/' | '/finance' | '/stock/$symbol' | '/holding/$symbol'
+  id: '__root__' | '/' | '/finance' | '/stock/$symbol' | '/holding/$symbol'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  FinanceRoute: typeof FinanceRoute
   StockSymbolRoute: typeof StockSymbolRoute
   HoldingSymbolRoute: typeof HoldingSymbolRoute
 }
@@ -68,6 +79,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/finance': {
+      id: '/finance'
+      path: '/finance'
+      fullPath: '/finance'
+      preLoaderRoute: typeof FinanceRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/stock/$symbol': {
@@ -89,6 +107,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  FinanceRoute: FinanceRoute,
   StockSymbolRoute: StockSymbolRoute,
   HoldingSymbolRoute: HoldingSymbolRoute,
 }
