@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { Home as HomeIcon, Briefcase, LineChart, ListChecks, Receipt, CalendarRange, Settings as SettingsIcon, Wallet } from "lucide-react";
 import { previewFifoSell } from "@/utils/fifo";
@@ -23,8 +23,6 @@ import { AnalyticsPanel } from "@/components/analytics/AnalyticsPanel";
 import { PlanningPanel } from "@/components/planning/PlanningPanel";
 import { PriceAlertsButton } from "@/components/alerts/PriceAlertsButton";
 import { SettingsPanel, type BackupShape } from "@/components/settings/SettingsPanel";
-import { FinancePanel } from "@/components/finance/FinancePanel";
-import { FinanceProvider } from "@/context/FinanceContext";
 import { useWatchlist } from "@/hooks/useWatchlist";
 import { useStockQuote, useStockQuotes } from "@/hooks/useStockQuote";
 import { usePortfolioState } from "@/hooks/usePortfolio";
@@ -244,7 +242,7 @@ function DashboardPage() {
               <TabsTrigger value="planning" className="gap-1.5 minimal:rounded-none minimal:border-b-2 minimal:border-transparent minimal:bg-transparent minimal:data-[state=active]:border-primary minimal:data-[state=active]:bg-transparent minimal:data-[state=active]:shadow-none">
                 <CalendarRange className="h-3.5 w-3.5" /> Planning
               </TabsTrigger>
-              <TabsTrigger value="finance" className="gap-1.5 minimal:rounded-none minimal:border-b-2 minimal:border-transparent minimal:bg-transparent minimal:data-[state=active]:border-primary minimal:data-[state=active]:bg-transparent minimal:data-[state=active]:shadow-none">
+              <TabsTrigger value="finance" className="gap-1.5 minimal:rounded-none minimal:border-b-2 minimal:border-transparent minimal:bg-transparent minimal:data-[state=active]:border-primary minimal:data-[state=active]:bg-transparent minimal:data-[state=active]:shadow-none" onClick={() => navigate({ to: "/finance" })}>
                 <Wallet className="h-3.5 w-3.5" /> Finance
               </TabsTrigger>
               <TabsTrigger value="settings" className="gap-1.5 minimal:rounded-none minimal:border-b-2 minimal:border-transparent minimal:bg-transparent minimal:data-[state=active]:border-primary minimal:data-[state=active]:bg-transparent minimal:data-[state=active]:shadow-none">
@@ -318,9 +316,7 @@ function DashboardPage() {
             />
           </TabsContent>
 
-          <TabsContent value="finance">
-            <FinanceProvider><FinancePanel /></FinanceProvider>
-          </TabsContent>
+                    <TabsContent value="finance">{/* Navigates to /finance route via tab trigger */}</TabsContent>
 
           <TabsContent value="settings">
             <SettingsPanel
