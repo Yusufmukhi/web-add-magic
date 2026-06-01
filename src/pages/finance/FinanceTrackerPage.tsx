@@ -129,7 +129,7 @@ function FinanceTrackerInner() {
       </main>
 
       {/* Bottom nav with "finance" as active tab */}
-      <BottomNav activeTab="finance" onTabChange={handleNavTab} />
+      <BottomNav value="finance" onChange={handleNavTab} />
     </div>
   );
 }
