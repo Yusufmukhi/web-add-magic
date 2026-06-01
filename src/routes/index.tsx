@@ -24,6 +24,7 @@ import { PlanningPanel } from "@/components/planning/PlanningPanel";
 import { PriceAlertsButton } from "@/components/alerts/PriceAlertsButton";
 import { SettingsPanel, type BackupShape } from "@/components/settings/SettingsPanel";
 import { FinancePanel } from "@/components/finance/FinancePanel";
+import { FinanceProvider } from "@/context/FinanceContext";
 import { useWatchlist } from "@/hooks/useWatchlist";
 import { useStockQuote, useStockQuotes } from "@/hooks/useStockQuote";
 import { usePortfolioState } from "@/hooks/usePortfolio";
@@ -318,7 +319,7 @@ function DashboardPage() {
           </TabsContent>
 
           <TabsContent value="finance">
-            <FinancePanel />
+            <FinanceProvider><FinancePanel /></FinanceProvider>
           </TabsContent>
 
           <TabsContent value="settings">
