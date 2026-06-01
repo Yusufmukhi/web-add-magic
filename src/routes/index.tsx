@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { toast } from "sonner";
-import { Home as HomeIcon, Briefcase, LineChart, ListChecks, Receipt, CalendarRange, Settings as SettingsIcon } from "lucide-react";
+import { Home as HomeIcon, Briefcase, LineChart, ListChecks, Receipt, CalendarRange, Settings as SettingsIcon, Wallet } from "lucide-react";
 import { previewFifoSell } from "@/utils/fifo";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { BottomNav, type NavTab } from "@/components/layout/BottomNav";
@@ -23,6 +23,7 @@ import { AnalyticsPanel } from "@/components/analytics/AnalyticsPanel";
 import { PlanningPanel } from "@/components/planning/PlanningPanel";
 import { PriceAlertsButton } from "@/components/alerts/PriceAlertsButton";
 import { SettingsPanel, type BackupShape } from "@/components/settings/SettingsPanel";
+import { FinancePanel } from "@/components/finance/FinancePanel";
 import { useWatchlist } from "@/hooks/useWatchlist";
 import { useStockQuote, useStockQuotes } from "@/hooks/useStockQuote";
 import { usePortfolioState } from "@/hooks/usePortfolio";
@@ -242,6 +243,9 @@ function DashboardPage() {
               <TabsTrigger value="planning" className="gap-1.5 minimal:rounded-none minimal:border-b-2 minimal:border-transparent minimal:bg-transparent minimal:data-[state=active]:border-primary minimal:data-[state=active]:bg-transparent minimal:data-[state=active]:shadow-none">
                 <CalendarRange className="h-3.5 w-3.5" /> Planning
               </TabsTrigger>
+              <TabsTrigger value="finance" className="gap-1.5 minimal:rounded-none minimal:border-b-2 minimal:border-transparent minimal:bg-transparent minimal:data-[state=active]:border-primary minimal:data-[state=active]:bg-transparent minimal:data-[state=active]:shadow-none">
+                <Wallet className="h-3.5 w-3.5" /> Finance
+              </TabsTrigger>
               <TabsTrigger value="settings" className="gap-1.5 minimal:rounded-none minimal:border-b-2 minimal:border-transparent minimal:bg-transparent minimal:data-[state=active]:border-primary minimal:data-[state=active]:bg-transparent minimal:data-[state=active]:shadow-none">
                 <SettingsIcon className="h-3.5 w-3.5" /> Settings
               </TabsTrigger>
@@ -311,6 +315,10 @@ function DashboardPage() {
               portfolioValue={portfolioValue}
               transactions={transactions}
             />
+          </TabsContent>
+
+          <TabsContent value="finance">
+            <FinancePanel />
           </TabsContent>
 
           <TabsContent value="settings">
