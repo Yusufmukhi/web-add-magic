@@ -1,4 +1,6 @@
 import type { ReactNode } from "react";
+import { Link } from "@tanstack/react-router";
+import { Wallet } from "lucide-react";
 import { ThemeToggle } from "./ThemeToggle";
 import { ModeToggle } from "./ModeToggle";
 
@@ -24,6 +26,14 @@ export function Navbar({ rightSlot }: { rightSlot?: ReactNode }) {
         </div>
         <div className="flex shrink-0 items-center gap-1 sm:gap-2">
           {rightSlot}
+          <Link
+            to="/finance"
+            className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent sm:px-3"
+            aria-label="Open Finance Tracker"
+          >
+            <Wallet className="h-4 w-4" />
+            <span className="hidden sm:inline">Finance</span>
+          </Link>
           <ModeToggle />
           <ThemeToggle />
         </div>
