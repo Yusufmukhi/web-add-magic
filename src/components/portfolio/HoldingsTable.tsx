@@ -77,24 +77,26 @@ export function HoldingsTable({ rows, quotes = [], onSell, onEdit, onDelete }: P
                 </div>
               </div>
 
-              {/* Right column: overall P&L + day P&L */}
+              {/* Right column: P&L row + LTP row (matches Angel One layout) */}
               <div className="text-right shrink-0">
-                <div className={`font-mono text-[13px] font-semibold ${r.pl >= 0 ? "text-gain" : "text-loss"}`}>
-                  {r.pl >= 0 ? "+" : ""}₹{formatIN(r.pl)}
-                  <span className="ml-1 text-[10px] font-normal">
+                {/* Row 1: overall P&L value + % */}
+                <div className={`font-mono text-[14px] font-bold ${r.pl >= 0 ? "text-gain" : "text-loss"}`}>
+                  ₹{formatIN(Math.abs(r.pl))}
+                  <span className="ml-1 text-[12px] font-normal">
                     ({r.plPct >= 0 ? "+" : ""}{formatNumber(r.plPct, 2)}%)
                   </span>
                 </div>
-                {dayPL !== null && (
-                  <div className={`text-[11px] mt-0.5 ${dayPL >= 0 ? "text-gain" : "text-loss"}`}>
-                    Today: {dayPL >= 0 ? "+" : ""}₹{formatIN(dayPL)}
-                    <span className="ml-0.5 text-[10px]">
-                      ({dayPct !== null && dayPct >= 0 ? "+" : ""}{dayPct !== null ? formatNumber(dayPct, 2) : "—"}%)
+                {/* Row 2: LTP price + day change % */}
+                <div className="text-[12px] text-muted-foreground mt-0.5">
+                  LTP{" "}
+                  <span className="font-mono font-semibold text-foreground">
+                    ₹{formatIN(r.cp)}
+                  </span>
+                  {dayPct !== null && (
+                    <span className={`ml-1 ${dayPct >= 0 ? "text-gain" : "text-loss"}`}>
+                      ({dayPct >= 0 ? "+" : ""}{formatNumber(dayPct, 2)}%)
                     </span>
-                  </div>
-                )}
-                <div className="text-[11px] text-muted-foreground mt-0.5">
-                  LTP ₹{formatIN(r.cp)}
+                  )}
                 </div>
               </div>
 
