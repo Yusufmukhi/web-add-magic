@@ -24,18 +24,47 @@ interface Props {
   isSelected: boolean;
 }
 
+/** Deterministic colour from ticker string */
+function tickerColor(ticker: string): string {
+  const palette = [
+    "#3b82f6", "#8b5cf6", "#ec4899", "#f97316",
+    "#10b981", "#06b6d4", "#f59e0b", "#6366f1",
+  ];
+  let hash = 0;
+  for (let i = 0; i < ticker.length; i++) hash = ticker.charCodeAt(i) + ((hash << 5) - hash);
+  return palette[Math.abs(hash) % palette.length];
+}
+
+function LogoAvatar({ ticker }: { ticker: string }) {
+  return (
+    <div
+      className="h-7 w-7 rounded-full flex items-center justify-center shrink-0 font-bold text-white text-[10px]"
+      style={{ background: tickerColor(ticker) }}
+    >
+      {ticker.slice(0, 2).toUpperCase()}
+    </div>
+  );
+}
+
 export function StockRow({ result, onRemove, onSelect, isSelected }: Props) {
   const { ticker, data, isLoading, error } = result;
 
   if (isLoading || (!data && !error)) {
     return (
       <tr className="border-b border-border">
-        <td className="px-4 py-3 font-mono font-semibold">{ticker}</td>
-        <td className="px-4 py-3"><Skeleton className="h-4 w-32" /></td>
-        <td className="px-4 py-3"><Skeleton className="h-5 w-16" /></td>
-        <td className="hidden px-4 py-3 md:table-cell"><Skeleton className="h-4 w-20" /></td>
+        <td className="px-4 py-3">
+          <div className="flex items-center gap-2">
+            <Skeleton className="h-7 w-7 rounded-full" />
+            <div>
+              <Skeleton className="h-4 w-20 mb-1" />
+              <Skeleton className="h-3 w-28" />
+            </div>
+          </div>
+        </td>
+        <td className="hidden px-4 py-3 md:table-cell"><Skeleton className="h-4 w-16" /></td>
         <td className="px-4 py-3 text-right"><Skeleton className="ml-auto h-4 w-20" /></td>
-        <td className="px-4 py-3 text-right"><Skeleton className="ml-auto h-4 w-16" /></td>
+        <td className="px-4 py-3 text-right"><Skeleton className="ml-auto h-4 w-14" /></td>
+        <td className="px-4 py-3 text-right"><Skeleton className="ml-auto h-4 w-14" /></td>
         <td className="hidden px-4 py-3 lg:table-cell"><Skeleton className="h-8 w-24" /></td>
         <td className="hidden px-4 py-3 text-right md:table-cell"><Skeleton className="ml-auto h-4 w-12" /></td>
         <td className="hidden px-4 py-3 text-right md:table-cell"><Skeleton className="ml-auto h-4 w-20" /></td>
@@ -47,8 +76,13 @@ export function StockRow({ result, onRemove, onSelect, isSelected }: Props) {
   if (error || !data) {
     return (
       <tr className="border-b border-border">
-        <td className="px-4 py-3 font-mono font-semibold">{ticker}</td>
-        <td colSpan={8} className="px-4 py-3 text-sm text-loss">
+        <td className="px-4 py-3">
+          <div className="flex items-center gap-2">
+            <LogoAvatar ticker={ticker} />
+            <span className="font-mono text-sm font-semibold">{ticker}</span>
+          </div>
+        </td>
+        <td colSpan={7} className="px-4 py-3 text-sm text-loss">
           <span className="inline-flex items-center gap-1.5">
             <AlertCircle className="h-3.5 w-3.5" /> Failed to load data
           </span>
@@ -73,47 +107,70 @@ export function StockRow({ result, onRemove, onSelect, isSelected }: Props) {
         isSelected ? "bg-accent/60 creative:shadow-glow" : ""
       }`}
     >
+      {/* Symbol column: avatar + ticker + company name */}
       <td className="px-4 py-3">
-        <div className="font-mono text-sm font-bold">{ticker}</div>
+        <div className="flex items-center gap-2.5">
+          <LogoAvatar ticker={ticker} />
+          <div>
+            <div className="font-mono text-[13px] font-bold leading-tight">{ticker}</div>
+            <div className="text-[11px] text-muted-foreground truncate max-w-[160px] leading-tight">{data.name}</div>
+          </div>
+        </div>
       </td>
-      <td className="px-4 py-3">
-        <div className="max-w-[200px] truncate text-sm font-medium">{data.name}</div>
-      </td>
-      <td className="px-4 py-3">
-        <Badge variant="outline" className={`text-[10px] ${sectorBadgeClass(data.sector)}`}>
-          {data.sector}
-        </Badge>
-      </td>
+
+      {/* Sector badge — hidden on small */}
       <td className="hidden px-4 py-3 md:table-cell">
-        {nearHigh && (
-          <Badge variant="outline" className="border-gain/40 bg-gain/10 text-[10px] text-gain">
-            Near 52W High
+        <div className="space-y-1">
+          <Badge variant="outline" className={`text-[10px] ${sectorBadgeClass(data.sector)}`}>
+            {data.sector}
           </Badge>
-        )}
-        {nearLow && (
-          <Badge variant="outline" className="border-loss/40 bg-loss/10 text-[10px] text-loss">
-            Near 52W Low
-          </Badge>
-        )}
+          {nearHigh && (
+            <Badge variant="outline" className="block border-gain/40 bg-gain/10 text-[10px] text-gain">
+              Near 52W High
+            </Badge>
+          )}
+          {nearLow && (
+            <Badge variant="outline" className="block border-loss/40 bg-loss/10 text-[10px] text-loss">
+              Near 52W Low
+            </Badge>
+          )}
+        </div>
       </td>
-      <td className="px-4 py-3 text-right font-mono text-sm font-semibold">
+
+      {/* Last (CMP) */}
+      <td className="px-4 py-3 text-right font-mono text-[13px] font-semibold">
         {formatINR(data.cmp)}
       </td>
-      <td className={`px-4 py-3 text-right font-mono text-sm font-semibold ${changeColorClass(data.dayChange)}`}>
-        <span className="inline-flex items-center gap-1">
+
+      {/* Chg (absolute) */}
+      <td className={`px-4 py-3 text-right font-mono text-[13px] font-semibold ${changeColorClass(data.dayChange)}`}>
+        {data.dayChange >= 0 ? "+" : ""}{formatNumber(data.dayChange, 2)}
+      </td>
+
+      {/* Chg% */}
+      <td className={`px-4 py-3 text-right font-mono text-[13px] font-semibold ${changeColorClass(data.dayChange)}`}>
+        <span className="inline-flex items-center justify-end gap-1">
           {positive ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
           {formatChangePct(data.dayChangePct)}
         </span>
       </td>
+
+      {/* 7D Sparkline */}
       <td className="hidden px-4 py-3 lg:table-cell">
         <Sparkline ticker={ticker} positive={positive} />
       </td>
+
+      {/* P/E */}
       <td className="hidden px-4 py-3 text-right font-mono text-xs text-muted-foreground md:table-cell">
         {formatNumber(data.pe)}
       </td>
+
+      {/* Mkt Cap */}
       <td className="hidden px-4 py-3 text-right font-mono text-xs text-muted-foreground md:table-cell">
         {formatMarketCap(data.marketCap)}
       </td>
+
+      {/* Remove */}
       <td className="px-4 py-3 text-right">
         <Button
           size="icon"
