@@ -78,7 +78,7 @@ export function OverviewStrip({
   ];
 
   return (
-    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+    <div className="hidden md:grid grid-cols-2 gap-2 sm:grid-cols-4">
       {stats.map((s) => {
         const Icon = s.icon;
         return (
