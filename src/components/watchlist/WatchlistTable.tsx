@@ -303,21 +303,25 @@ export function WatchlistTable({ results, onRemove, onAdd }: Props) {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/30 text-left text-[11px] uppercase tracking-wider text-muted-foreground minimal:bg-transparent">
-                <th className="px-4 py-2.5 font-medium">Ticker</th>
-                <th className="px-4 py-2.5 font-medium">Name</th>
-                <th className="px-4 py-2.5 font-medium">Sector</th>
-                <th className="hidden px-4 py-2.5 font-medium md:table-cell">Alerts</th>
+                <th className="px-4 py-2.5 font-medium">Symbol</th>
+                <th className="hidden px-4 py-2.5 font-medium md:table-cell">Sector</th>
                 <th
                   className="px-4 py-2.5 text-right font-medium cursor-pointer hover:text-foreground select-none"
                   onClick={() => handleSort("cmp")}
                 >
-                  <span className="flex items-center justify-end gap-0.5">CMP <SortIcon k="cmp" /></span>
+                  <span className="flex items-center justify-end gap-0.5">Last <SortIcon k="cmp" /></span>
                 </th>
                 <th
                   className="px-4 py-2.5 text-right font-medium cursor-pointer hover:text-foreground select-none"
                   onClick={() => handleSort("dayPct")}
                 >
-                  <span className="flex items-center justify-end gap-0.5">Day % <SortIcon k="dayPct" /></span>
+                  <span className="flex items-center justify-end gap-0.5">Chg <SortIcon k="dayPct" /></span>
+                </th>
+                <th
+                  className="px-4 py-2.5 text-right font-medium cursor-pointer hover:text-foreground select-none"
+                  onClick={() => handleSort("dayPct")}
+                >
+                  <span className="flex items-center justify-end gap-0.5">Chg% <SortIcon k="dayPct" /></span>
                 </th>
                 <th className="hidden px-4 py-2.5 font-medium lg:table-cell">7D Trend</th>
                 <th
