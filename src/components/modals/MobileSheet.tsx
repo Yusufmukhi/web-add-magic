@@ -41,11 +41,11 @@ export function MobileSheet({ open, onClose, title, children }: Props) {
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
+      <DialogContent className="sm:max-w-md flex flex-col max-h-[90dvh]">
+        <DialogHeader className="border-b border-border pb-3 shrink-0">
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
-        {children}
+        <div className="overflow-y-auto px-1 pb-4 pt-2 flex-1">{children}</div>
       </DialogContent>
     </Dialog>
   );
