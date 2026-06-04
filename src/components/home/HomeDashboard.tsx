@@ -17,6 +17,7 @@ import { usePortfolioVsNifty } from "@/hooks/usePortfolioVsNifty";
 import type { Holding, Transaction } from "@/types/portfolio.types";
 import { formatINR, formatIndianNumber } from "@/utils/formatters";
 import { cn } from "@/lib/utils";
+import { PortfolioMetricStrip } from "@/components/portfolio/PortfolioMetricStrip";
 
 const INDICES: { symbol: string; label: string }[] = [
   { symbol: "^NSEI", label: "NIFTY 50" },
@@ -172,6 +173,20 @@ export function HomeDashboard({
           )}
         </div>
       </section>
+
+      {/* Portfolio Metric Strip — 4-card overview with Today's P&L tab */}
+      {portfolio.length > 0 && (
+        <section>
+          <PortfolioMetricStrip
+            invested={invested}
+            current={current}
+            cashBalance={cashBalance}
+            cagr={null}
+            dayPL={dayPL}
+            dayPLPct={isFinite(dayPLPct) ? dayPLPct : 0}
+          />
+        </section>
+      )}
 
       {/* Quick stat chips */}
       <section className="-mx-3 overflow-x-auto px-3 sm:mx-0 sm:px-0">
