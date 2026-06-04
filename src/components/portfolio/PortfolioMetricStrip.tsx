@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { TrendingUp, Wallet, PiggyBank, BarChart3 } from "lucide-react";
+import { TrendingUp, Wallet, PiggyBank, BarChart3, CalendarClock } from "lucide-react";
 import { formatINR, formatNumber } from "@/utils/formatters";
 import { cn } from "@/lib/utils";
 
@@ -8,24 +8,33 @@ interface Props {
   current: number;
   cashBalance: number;
   cagr: number | null;
+  dayPL?: number;       // today's P&L (sum of dayChange × qty)
+  dayPLPct?: number;    // today's P&L %
 }
 
-type Metric = "value" | "pnl" | "cagr" | "invested";
+type Metric = "value" | "pnl" | "todaypnl" | "cagr" | "invested";
 
-export function PortfolioMetricStrip({ invested, current, cashBalance, cagr }: Props) {
+export function PortfolioMetricStrip({ invested, current, cashBalance, cagr, dayPL, dayPLPct }: Props) {
   const [active, setActive] = useState<Metric>("value");
 
   const unrealized = current - invested;
   const unrealizedPct = invested > 0 ? (unrealized / invested) * 100 : 0;
   const portfolioValue = current + cashBalance;
 
-  const metrics: { id: Metric; icon: typeof TrendingUp; label: string; value: string; sub: string; tone?: "gain" | "loss" }[] = [
+  const metrics: {
+    id: Metric;
+    icon: typeof TrendingUp;
+    label: string;
+    value: string;
+    sub: string;
+    tone?: "gain" | "loss";
+  }[] = [
     {
       id: "value",
       icon: Wallet,
       label: "Portfolio Value",
       value: formatINR(portfolioValue),
-      sub: "Stocks + Cash",
+      sub: `${portfolioValue > 0 ? current.toLocaleString("en-IN", { maximumFractionDigits: 0 }) : "—"} stocks + cash`,
     },
     {
       id: "pnl",
@@ -34,6 +43,18 @@ export function PortfolioMetricStrip({ invested, current, cashBalance, cagr }: P
       value: `${unrealized >= 0 ? "+" : ""}${formatINR(unrealized)}`,
       sub: `${unrealizedPct >= 0 ? "+" : ""}${formatNumber(unrealizedPct, 2)}%`,
       tone: unrealized >= 0 ? "gain" : "loss",
+    },
+    {
+      id: "todaypnl",
+      icon: CalendarClock,
+      label: "Today's P&L",
+      value: dayPL != null
+        ? `${dayPL >= 0 ? "+" : ""}${formatINR(dayPL)}`
+        : "—",
+      sub: dayPLPct != null
+        ? `${dayPLPct >= 0 ? "+" : ""}${formatNumber(dayPLPct, 2)}%`
+        : "Live",
+      tone: dayPL == null ? undefined : dayPL >= 0 ? "gain" : "loss",
     },
     {
       id: "cagr",
@@ -71,7 +92,7 @@ export function PortfolioMetricStrip({ invested, current, cashBalance, cagr }: P
         <p className="text-sm text-muted-foreground mt-0.5">{activeMetric.sub}</p>
       </div>
 
-      {/* Scrollable chips */}
+      {/* Scrollable tab chips */}
       <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none -mx-1 px-1">
         {metrics.map((m) => {
           const Icon = m.icon;
