@@ -339,6 +339,7 @@ export function PortfolioPanel({
       {/* FIX: removed onSelect/selected — HoldingsTable now navigates to /holding/$symbol on all devices */}
       <HoldingsTable
         rows={rows}
+        quotes={quotes}
         onSell={onSell}
         onEdit={onEditHolding}
         onDelete={onDeleteHolding}
