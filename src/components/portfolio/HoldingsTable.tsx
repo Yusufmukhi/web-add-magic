@@ -1,4 +1,4 @@
-import { Pencil, Trash2, ChevronRight, Inbox } from "lucide-react";
+import { Pencil, Trash2, Inbox } from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import type { HoldingRow } from "@/types/portfolio.types";
@@ -47,63 +47,101 @@ export function HoldingsTable({ rows, quotes = [], onSell, onEdit, onDelete }: P
 
   const formatIN = (n: number) => n.toLocaleString("en-IN", { maximumFractionDigits: 2 });
 
+  // ── Mobile totals ──
+  const totalInvested = rows.reduce((s, r) => s + r.invested, 0);
+  const totalCurrent  = rows.reduce((s, r) => s + r.value, 0);
+  const totalPL       = totalCurrent - totalInvested;
+  const totalPLPct    = totalInvested > 0 ? (totalPL / totalInvested) * 100 : 0;
+  const todayGain     = rows.reduce((s, r) => {
+    const d = dayChangeMap[r.ticker];
+    return s + (d ? d.change * r.qty : 0);
+  }, 0);
+
   return (
     <>
-      {/* ── MOBILE: Angel One card style ── */}
-      <div className="md:hidden rounded-2xl border border-border bg-card overflow-hidden minimal:rounded-none minimal:border-x-0 minimal:bg-transparent">
+      {/* ── MOBILE: Angel One full layout ── */}
+      <div className="md:hidden bg-card">
+
+        {/* ── Summary header ── */}
+        <div className={`px-4 py-4 ${totalPL >= 0 ? "bg-gain/10" : "bg-loss/10"}`}>
+          <p className="text-[11px] text-muted-foreground uppercase tracking-wide">Total P&amp;L</p>
+          <p className={`mt-0.5 font-display text-[26px] font-bold leading-tight ${totalPL >= 0 ? "text-gain" : "text-loss"}`}>
+            {totalPL >= 0 ? "+" : ""}₹{formatIN(Math.abs(totalPL))}
+            <span className="ml-2 text-[16px] font-normal">
+              ({totalPLPct >= 0 ? "+" : ""}{formatNumber(totalPLPct, 2)}%)
+            </span>
+          </p>
+        </div>
+
+        {/* ── Invested / Current row ── */}
+        <div className="flex items-center justify-between border-b border-border px-4 py-3">
+          <div>
+            <p className="text-[11px] text-muted-foreground">Invested</p>
+            <p className="font-mono text-[15px] font-semibold">₹{formatIN(totalInvested)}</p>
+          </div>
+          <div className="text-right">
+            <p className="text-[11px] text-muted-foreground">Current</p>
+            <p className="font-mono text-[15px] font-semibold">₹{formatIN(totalCurrent)}</p>
+          </div>
+        </div>
+
+        {/* ── Column headers ── */}
+        <div className="flex items-center justify-between border-b border-border px-4 py-2 bg-muted/30">
+          <p className="text-[11px] text-muted-foreground">Symbol / Qty / Avg. Price</p>
+          <p className="text-[11px] text-muted-foreground">Total P&amp;L / LTP</p>
+        </div>
+
+        {/* ── Rows ── */}
         {rows.map((r) => {
           const day = dayChangeMap[r.ticker];
-          const dayPL = day ? day.change * r.qty : null;
           const dayPct = day ? day.changePct : null;
 
           return (
             <div
               key={r.ticker}
               onClick={() => handleRowClick(r.ticker)}
-              className="flex items-center gap-3 border-b border-border px-4 py-3 cursor-pointer active:bg-accent/40 transition-colors"
-              style={{ minHeight: 64 }}
+              className="flex items-center justify-between border-b border-border px-4 py-3.5 cursor-pointer active:bg-accent/30 transition-colors"
             >
-              {/* Colour bar left */}
-              <div
-                className="w-1 self-stretch rounded-full shrink-0"
-                style={{ background: r.pl >= 0 ? "rgb(34 197 94 / 0.6)" : "rgb(239 68 68 / 0.6)" }}
-              />
-
-              {/* Left column: ticker + qty×ATP */}
-              <div className="flex-1 min-w-0">
-                <div className="font-mono text-[14px] font-bold leading-tight">{r.ticker}</div>
-                <div className="text-[11px] text-muted-foreground mt-0.5">
-                  {r.qty} × ATP ₹{formatIN(r.avgPrice)}
-                </div>
+              {/* Left: symbol + qty @ avg */}
+              <div className="min-w-0">
+                <p className="text-[15px] font-bold leading-tight">{r.ticker}</p>
+                <p className="text-[12px] text-muted-foreground mt-0.5">
+                  {r.qty} @ ₹{formatIN(r.avgPrice)}
+                </p>
               </div>
 
-              {/* Right column: P&L row + LTP row (matches Angel One layout) */}
+              {/* Right: total P&L / LTP + day% */}
               <div className="text-right shrink-0">
-                {/* Row 1: overall P&L value + % */}
-                <div className={`font-mono text-[14px] font-bold ${r.pl >= 0 ? "text-gain" : "text-loss"}`}>
-                  ₹{formatIN(Math.abs(r.pl))}
+                <p className={`text-[14px] font-semibold leading-tight ${r.pl >= 0 ? "text-gain" : "text-loss"}`}>
+                  {r.pl >= 0 ? "+" : "-"}
+                  {formatIN(Math.abs(r.pl))}
                   <span className="ml-1 text-[12px] font-normal">
                     ({r.plPct >= 0 ? "+" : ""}{formatNumber(r.plPct, 2)}%)
                   </span>
-                </div>
-                {/* Row 2: LTP price + day change % */}
-                <div className="text-[12px] text-muted-foreground mt-0.5">
-                  LTP{" "}
-                  <span className="font-mono font-semibold text-foreground">
-                    ₹{formatIN(r.cp)}
+                </p>
+                <p className="text-[12px] text-muted-foreground mt-0.5">
+                  <span className="font-mono text-foreground">
+                    {formatIN(r.cp)}
                   </span>
                   {dayPct !== null && (
-                    <span className={`ml-1 ${dayPct >= 0 ? "text-gain" : "text-loss"}`}>
-                      ({dayPct >= 0 ? "+" : ""}{formatNumber(dayPct, 2)}%)
+                    <span className={`ml-2 font-medium ${dayPct >= 0 ? "text-gain" : "text-loss"}`}>
+                      {dayPct >= 0 ? "+" : ""}{formatNumber(dayPct, 2)}%
                     </span>
                   )}
-                </div>
+                </p>
               </div>
-
-              <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
             </div>
           );
         })}
+
+        {/* ── Today's Gain footer ── */}
+        <div className="flex items-center justify-between px-4 py-3.5 border-t-2 border-border">
+          <p className="text-[14px] font-bold">Today's Gain</p>
+          <p className={`font-display text-[16px] font-bold ${todayGain >= 0 ? "text-gain" : "text-loss"}`}>
+            {todayGain >= 0 ? "+" : ""}₹{formatIN(todayGain)}
+          </p>
+        </div>
+
       </div>
 
       {/* ── DESKTOP: Zerodha-style table ── */}
