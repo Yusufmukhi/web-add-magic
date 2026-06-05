@@ -11,6 +11,17 @@ interface Props {
   results: QuoteResult[];
 }
 
+/**
+ * SEBI-aligned market cap thresholds (as of FY2024 list):
+ *   Large Cap  : Top 100 companies  → market cap typically > ₹20,000 Cr (~$2.4B)
+ *   Mid Cap    : 101–250 companies  → market cap ₹5,000–₹20,000 Cr
+ *   Small Cap  : Below 250          → market cap < ₹5,000 Cr
+ *
+ * Previous thresholds (₹200Cr / ₹20Cr) were 100× too small.
+ */
+const LARGE_CAP_THRESHOLD = 200_000_000_000;  // ₹20,000 Cr in rupees (₹200B)
+const MID_CAP_THRESHOLD   =  50_000_000_000;  // ₹5,000 Cr in rupees  (₹50B)
+
 export function LiquidityView({ portfolio, results }: Props) {
   const data = useMemo(() => {
     if (!portfolio.length) return null;
@@ -31,21 +42,26 @@ export function LiquidityView({ portfolio, results }: Props) {
       let tierScore: number;
       let tierColor: string;
 
-      if (marketCap > 200_000_000_000) {
+      if (marketCap > LARGE_CAP_THRESHOLD) {
         tier = "Large Cap";
         tierScore = 100;
         tierColor = "border-blue-500 text-blue-500";
-      } else if (marketCap > 20_000_000_000) {
+      } else if (marketCap > MID_CAP_THRESHOLD) {
         tier = "Mid Cap";
         tierScore = 60;
         tierColor = "border-yellow-500 text-yellow-500";
-      } else {
+      } else if (marketCap > 0) {
         tier = "Small Cap";
         tierScore = 20;
         tierColor = "border-red-500 text-red-500";
+      } else {
+        // Market cap not available — treat conservatively as small cap
+        tier = "Unknown";
+        tierScore = 20;
+        tierColor = "border-muted-foreground text-muted-foreground";
       }
 
-      return { ticker: h.ticker, value, tier, tierScore, tierColor };
+      return { ticker: h.ticker, value, marketCap, tier, tierScore, tierColor };
     });
 
     const totalValue = rows.reduce((s, r) => s + r.value, 0);
@@ -82,10 +98,13 @@ export function LiquidityView({ portfolio, results }: Props) {
 
   return (
     <div>
-      <div className="flex items-center gap-2 mb-4">
+      <div className="flex items-center gap-2 mb-1">
         <Droplets className="h-5 w-5 text-primary" />
         <h2 className="text-lg font-semibold">Liquidity Score</h2>
       </div>
+      <p className="text-xs text-muted-foreground mb-4">
+        SEBI classification: Large Cap &gt;₹20,000 Cr · Mid Cap ₹5,000–20,000 Cr · Small Cap &lt;₹5,000 Cr
+      </p>
 
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
