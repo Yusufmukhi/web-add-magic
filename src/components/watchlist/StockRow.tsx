@@ -1,3 +1,4 @@
+import { getAccumulationSignal } from "@/hooks/useAccumulationSignal";
 import { TrendingDown, TrendingUp, X, AlertCircle } from "lucide-react";
 import type { QuoteResult } from "@/hooks/useStockQuote";
 import {
@@ -97,6 +98,7 @@ export function StockRow({ result, onRemove, onSelect, isSelected }: Props) {
   }
 
   const positive = data.dayChange >= 0;
+  const signal = getAccumulationSignal(data.volume, data.avgVolume, data.dayChangePct);
   const nearHigh = isNear52WeekHigh(data.cmp, data.fiftyTwoWeekHigh);
   const nearLow = isNear52WeekLow(data.cmp, data.fiftyTwoWeekLow);
 
@@ -113,6 +115,8 @@ export function StockRow({ result, onRemove, onSelect, isSelected }: Props) {
           <LogoAvatar ticker={ticker} />
           <div>
             <div className="font-mono text-[13px] font-bold leading-tight">{ticker}</div>
+            {signal === "accumulation" && <Badge className="mt-0.5 bg-emerald-500/20 text-emerald-600 text-[9px] px-1 py-0 w-fit">▲ Accum</Badge>}
+            {signal === "distribution" && <Badge className="mt-0.5 bg-orange-500/20 text-orange-600 text-[9px] px-1 py-0 w-fit">▼ Dist</Badge>}
             <div className="text-[11px] text-muted-foreground truncate max-w-[160px] leading-tight">{data.name}</div>
           </div>
         </div>
