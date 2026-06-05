@@ -1,5 +1,8 @@
 import { useState, useEffect, useRef } from "react";
-import { Sparkles, Search, Copy, Trash2, AlertTriangle, BarChart2, Key, X, ChevronRight } from "lucide-react";
+import {
+  Sparkles, Search, Copy, AlertTriangle, BarChart2,
+  Key, X, ChevronRight,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -15,14 +18,20 @@ interface ResearchEntry {
   timestamp: number;
 }
 
+// Gemini response part type — text or thought block
+type GeminiPart = { text?: string; thought?: boolean };
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const LS_KEY_API   = "gemini_api_key";
-const LS_KEY_HIST  = "research_history";
-const MAX_HIST     = 5;
-// Use the Lite model on v1beta for the best free quota
+const LS_KEY_API  = "gemini_api_key";
+const LS_KEY_HIST = "research_history";
+const MAX_HIST    = 8; // ✅ Increased from 5
+
+// ✅ FIX 1: Updated to gemini-2.5-flash — best free model (1,500 req/day, 10 RPM)
+// Old: gemini-2.0-flash-lite
+const GEMINI_MODEL = "gemini-2.5-flash";
 const GEMINI_URL = (key: string) =>
-  `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${key}`;
+  `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${key}`;
 
 const SYSTEM_PROMPT = `You are Aurum, an elite institutional equity research analyst specializing exclusively in Indian stock markets — NSE and BSE listed companies. You have deep expertise in Indian accounting standards (Ind AS), SEBI regulations, sectoral dynamics of the Indian economy, and the behavioral patterns of Indian retail vs institutional investors.
 
@@ -110,52 +119,146 @@ function timeAgo(ts: number): string {
   return `${Math.floor(h / 24)}d ago`;
 }
 
-// ─── Markdown renderer (simple, no deps) ─────────────────────────────────────
+// ✅ NEW: Human-readable error messages for common Gemini API errors
+function parseGeminiError(err: unknown): string {
+  if (!(err instanceof Error)) return "Unknown error occurred.";
+  const msg = err.message;
+  if (msg.includes("429") || msg.toLowerCase().includes("quota") || msg.toLowerCase().includes("rate"))
+    return "Rate limit hit — free tier allows 10 req/min. Wait ~15 seconds and retry.";
+  if (msg.includes("400"))
+    return "Bad request. Ensure your API key has Gemini 2.5 Flash access at aistudio.google.com.";
+  if (msg.includes("401") || msg.includes("403") || msg.toLowerCase().includes("api key"))
+    return "Invalid or expired API key. Please re-enter it.";
+  if (msg.includes("500") || msg.includes("503"))
+    return "Gemini server error. Please try again in a few seconds.";
+  return msg;
+}
+
+// ✅ NEW: Safely extract only visible text parts (skips thought/thinking blocks in Gemini 2.5)
+function extractText(parts: GeminiPart[] | undefined): string {
+  if (!Array.isArray(parts)) return "";
+  return parts
+    .filter((p) => typeof p.text === "string" && p.thought !== true)
+    .map((p) => p.text as string)
+    .join("");
+}
+
+// ─── Markdown renderer (with table + numbered list support) ───────────────────
 
 function ReportRenderer({ text }: { text: string }) {
   const lines = text.split("\n");
-  const elements: React.ReactNode[] = [];
+  const rawElements: React.ReactNode[] = [];
   let key = 0;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
 
     if (line.startsWith("## ")) {
-      elements.push(
+      rawElements.push(
         <h2 key={key++} className="mt-6 mb-2 text-base font-bold text-foreground border-b border-border pb-1">
           {line.replace("## ", "")}
         </h2>
       );
     } else if (line.startsWith("### ")) {
-      elements.push(
+      rawElements.push(
         <h3 key={key++} className="mt-4 mb-1 text-sm font-semibold text-foreground">
           {line.replace("### ", "")}
         </h3>
       );
-    } else if (line.startsWith("**") && line.endsWith("**") && line.length > 4) {
-      const content = line.slice(2, -2);
-      elements.push(
-        <p key={key++} className="text-sm font-semibold text-foreground my-0.5">{content}</p>
-      );
+    } else if (line.startsWith("| ")) {
+      // ✅ NEW: Table row — wrap in <tr>/<td> and buffer for table wrapper
+      const cells = line.split("|").filter((c) => c.trim()).map((c) => c.trim());
+      const nextLine = lines[i + 1] ?? "";
+      const isSeparator = /^[\|\-\s]+$/.test(nextLine);
+
+      if (isSeparator) {
+        // Header row
+        rawElements.push(
+          <tr key={key++} data-table-row="header" className="bg-muted/60">
+            {cells.map((c, j) => (
+              <th key={j} className="px-3 py-2 text-left text-xs font-semibold text-foreground border border-border">
+                {c}
+              </th>
+            ))}
+          </tr>
+        );
+      } else if (/^[\|\-\s]+$/.test(line)) {
+        // Separator row — skip
+      } else {
+        rawElements.push(
+          <tr key={key++} data-table-row="body" className="even:bg-muted/20 hover:bg-muted/30 transition-colors">
+            {cells.map((c, j) => (
+              <td key={j} className="px-3 py-1.5 text-xs text-muted-foreground border border-border">
+                <span dangerouslySetInnerHTML={{ __html: formatInline(c) }} />
+              </td>
+            ))}
+          </tr>
+        );
+      }
     } else if (line.startsWith("- ") || line.startsWith("* ")) {
-      const content = line.slice(2);
-      elements.push(
+      rawElements.push(
         <div key={key++} className="flex gap-2 text-sm text-muted-foreground my-0.5">
           <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-primary/60 shrink-0" />
+          <span dangerouslySetInnerHTML={{ __html: formatInline(line.slice(2)) }} />
+        </div>
+      );
+    } else if (/^\d+\.\s/.test(line)) {
+      // ✅ NEW: Numbered list item
+      const num = line.match(/^(\d+)\./)?.[1] ?? "•";
+      const content = line.replace(/^\d+\.\s/, "");
+      rawElements.push(
+        <div key={key++} className="flex gap-2.5 text-sm text-muted-foreground my-1">
+          <span className="shrink-0 h-5 w-5 rounded-full bg-primary/10 flex items-center justify-center text-[10px] font-bold text-primary mt-0.5">
+            {num}
+          </span>
           <span dangerouslySetInnerHTML={{ __html: formatInline(content) }} />
         </div>
       );
+    } else if (line.startsWith("**") && line.endsWith("**") && line.length > 4) {
+      const content = line.slice(2, -2);
+      rawElements.push(
+        <p key={key++} className="text-sm font-semibold text-foreground my-0.5">{content}</p>
+      );
     } else if (line.trim() === "") {
-      elements.push(<div key={key++} className="h-1" />);
+      rawElements.push(<div key={key++} className="h-1" />);
     } else {
-      elements.push(
-        <p key={key++} className="text-sm text-muted-foreground my-0.5"
-          dangerouslySetInnerHTML={{ __html: formatInline(line) }} />
+      rawElements.push(
+        <p
+          key={key++}
+          className="text-sm text-muted-foreground my-0.5"
+          dangerouslySetInnerHTML={{ __html: formatInline(line) }}
+        />
       );
     }
   }
 
-  return <div className="py-1">{elements}</div>;
+  // ✅ NEW: Wrap consecutive <tr> elements in a <table>
+  const finalElements: React.ReactNode[] = [];
+  let tableRows: React.ReactNode[] = [];
+
+  const flushTable = () => {
+    if (tableRows.length > 0) {
+      finalElements.push(
+        <div key={`tbl-${finalElements.length}`} className="overflow-x-auto my-3 rounded-md border border-border">
+          <table className="w-full border-collapse text-sm">{tableRows}</table>
+        </div>
+      );
+      tableRows = [];
+    }
+  };
+
+  for (const el of rawElements) {
+    const elem = el as React.ReactElement;
+    if (elem?.type === "tr") {
+      tableRows.push(el);
+    } else {
+      flushTable();
+      finalElements.push(el);
+    }
+  }
+  flushTable();
+
+  return <div className="py-1">{finalElements}</div>;
 }
 
 function formatInline(text: string): string {
@@ -165,7 +268,7 @@ function formatInline(text: string): string {
     .replace(/`(.+?)`/g, "<code class='bg-muted px-1 rounded text-xs'>$1</code>");
 }
 
-// ─── API call ─────────────────────────────────────────────────────────────────
+// ─── API: Main stock analysis ──────────────────────────────────────────────────
 
 async function callGemini(apiKey: string, userQuery: string): Promise<string> {
   const res = await fetch(GEMINI_URL(apiKey), {
@@ -174,10 +277,16 @@ async function callGemini(apiKey: string, userQuery: string): Promise<string> {
     body: JSON.stringify({
       system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
       contents: [{ parts: [{ text: `Analyse this Indian stock for me: ${userQuery}` }] }],
-      tools: [{ 
-        google_search_retrieval: {} // Updated name for REST API
-      }],
-      generationConfig: { temperature: 0.4, maxOutputTokens: 4096 },
+      // ✅ FIX 2: Correct tool key for Gemini 2.5 Flash
+      // Old: google_search_retrieval: {}   ← worked only for 1.5 models
+      // New: google_search: {}             ← correct for 2.0+ models
+      tools: [{ google_search: {} }],
+      generationConfig: {
+        temperature: 0.4,
+        maxOutputTokens: 8192, // ✅ Increased from 4096 for more detailed reports
+        // ✅ NEW: Disable thinking mode for faster responses (Gemini 2.5 Flash feature)
+        thinkingConfig: { thinkingBudget: 0 },
+      },
     }),
   });
 
@@ -188,32 +297,55 @@ async function callGemini(apiKey: string, userQuery: string): Promise<string> {
   }
 
   const data = await res.json();
-  const text: string = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
-  if (!text) throw new Error("Empty response from Gemini");
+  // ✅ FIX 3: Use extractText() to skip thought blocks that Gemini 2.5 may return
+  // Old: data?.candidates?.[0]?.content?.parts?.[0]?.text  ← breaks with thinking blocks
+  const text = extractText(data?.candidates?.[0]?.content?.parts);
+  if (!text) throw new Error("Empty response from Gemini. The model may not have found data for this stock.");
   return text;
 }
 
-async function callGeminiFollowUp(apiKey: string, stock: string, type: "redflags" | "peers"): Promise<string> {
-  const prompt = type === "redflags"
-    ? `For the NSE-listed stock ${stock}, give me the top 5 specific red flags an investor must monitor right now. Use latest available data. Format as a numbered list with a bold heading for each red flag and 1-2 sentences of explanation. Be direct and specific — no generic warnings.`
-    : `Compare the NSE-listed stock ${stock} with its 3 closest listed peers on these metrics: Revenue Growth (YoY%), EBITDA Margin, Net Profit Margin, ROCE, PE Ratio, Debt/Equity. Present as a markdown table. Then give a 2-sentence summary of how ${stock} stands vs peers — is it a better or worse bet right now?`;
+// ─── API: Follow-up queries ────────────────────────────────────────────────────
+
+async function callGeminiFollowUp(
+  apiKey: string,
+  stock: string,
+  type: "redflags" | "peers"
+): Promise<string> {
+  const prompt =
+    type === "redflags"
+      ? `For the NSE-listed stock ${stock}, give me the top 5 specific red flags an investor must monitor right now. Use the latest available data. Format as a numbered list with a bold heading for each red flag and 1-2 sentences of explanation. Be direct and specific — no generic warnings.`
+      : `Compare the NSE-listed stock ${stock} with its 3 closest listed peers on these metrics: Revenue Growth (YoY%), EBITDA Margin, Net Profit Margin, ROCE, PE Ratio, Debt/Equity. Present as a markdown table. Then give a 2-sentence summary of how ${stock} stands vs peers — is it a better or worse bet right now?`;
 
   const res = await fetch(GEMINI_URL(apiKey), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       contents: [{ parts: [{ text: prompt }] }],
-      tools: [{ googleSearch: {} }],
-      generationConfig: { temperature: 0.3, maxOutputTokens: 2048 },
+      // ✅ FIX 4: Correct tool key (was googleSearch: {} — a typo that silently fails)
+      tools: [{ google_search: {} }],
+      generationConfig: {
+        temperature: 0.3,
+        maxOutputTokens: 4096,
+        // ✅ NEW: Disable thinking for faster follow-up responses
+        thinkingConfig: { thinkingBudget: 0 },
+      },
     }),
   });
 
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    const msg = (err as { error?: { message?: string } })?.error?.message ?? `HTTP ${res.status}`;
+    throw new Error(msg);
+  }
+
   const data = await res.json();
-  return data?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+  // ✅ FIX 5: Use extractText() consistently
+  const text = extractText(data?.candidates?.[0]?.content?.parts);
+  if (!text) throw new Error("Empty response from Gemini.");
+  return text;
 }
 
-// ─── Skeleton ─────────────────────────────────────────────────────────────────
+// ─── Skeleton loader ──────────────────────────────────────────────────────────
 
 function ReportSkeleton() {
   return (
@@ -232,7 +364,7 @@ function ReportSkeleton() {
   );
 }
 
-// ─── API Key Setup ────────────────────────────────────────────────────────────
+// ─── API Key Setup screen ─────────────────────────────────────────────────────
 
 function ApiKeySetup({ onSave }: { onSave: (key: string) => void }) {
   const [val, setVal] = useState("");
@@ -252,7 +384,8 @@ function ApiKeySetup({ onSave }: { onSave: (key: string) => void }) {
         <h3 className="font-semibold text-foreground">Setup Gemini API Key</h3>
       </div>
       <p className="text-sm text-muted-foreground">
-        AI Research uses Google Gemini with live web search. It's free — get your key from{" "}
+        AI Research uses <span className="font-medium text-foreground">Gemini 2.5 Flash</span> with live
+        Google Search — free tier gives 1,500 requests/day, no credit card needed. Get your key from{" "}
         <a
           href="https://aistudio.google.com/app/apikey"
           target="_blank"
@@ -273,8 +406,11 @@ function ApiKeySetup({ onSave }: { onSave: (key: string) => void }) {
         />
         <Button onClick={handleSave} className="shrink-0">Save Key</Button>
       </div>
+      {/* ✅ NEW: Privacy note about free tier data usage */}
       <p className="text-[11px] text-muted-foreground">
-        Your key is stored locally in your browser only — never sent anywhere except Google's API.
+        Your key is stored locally in your browser only — never sent anywhere except Google's API.{" "}
+        <span className="text-amber-500/80">Note: on the free tier, Google may use prompts for model
+        improvement. Upgrade to a paid tier or Vertex AI for full data privacy.</span>
       </p>
     </Card>
   );
@@ -283,18 +419,18 @@ function ApiKeySetup({ onSave }: { onSave: (key: string) => void }) {
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export function AIResearchPanel() {
-  const [apiKey, setApiKey]     = useState<string>(() => localStorage.getItem(LS_KEY_API) ?? "");
-  const [query, setQuery]       = useState("");
-  const [report, setReport]     = useState<string | null>(null);
+  const [apiKey, setApiKey]           = useState<string>(() => localStorage.getItem(LS_KEY_API) ?? "");
+  const [query, setQuery]             = useState("");
+  const [report, setReport]           = useState<string | null>(null);
   const [currentStock, setCurrentStock] = useState("");
-  const [loading, setLoading]   = useState(false);
+  const [loading, setLoading]         = useState(false);
   const [followUpText, setFollowUpText] = useState<string | null>(null);
   const [followUpType, setFollowUpType] = useState<"redflags" | "peers" | null>(null);
   const [followUpLoading, setFollowUpLoading] = useState(false);
-  const [history, setHistory]   = useState<ResearchEntry[]>(loadHistory);
+  const [history, setHistory]         = useState<ResearchEntry[]>(loadHistory);
   const reportRef = useRef<HTMLDivElement>(null);
 
-  // Sync history to localStorage whenever it changes
+  // Persist history to localStorage
   useEffect(() => { saveHistory(history); }, [history]);
 
   const handleAnalyse = async (stockQuery?: string) => {
@@ -311,16 +447,14 @@ export function AIResearchPanel() {
     try {
       const result = await callGemini(apiKey, q);
       setReport(result);
-      // Prepend to history, deduplicate by query
       setHistory((prev) => {
         const filtered = prev.filter((h) => h.query.toLowerCase() !== q.toLowerCase());
         return [{ query: q.toUpperCase(), report: result, timestamp: Date.now() }, ...filtered];
       });
-      // Scroll to report
       setTimeout(() => reportRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Unknown error";
-      toast.error(`Gemini error: ${msg}`);
+      // ✅ IMPROVEMENT: Use parseGeminiError for user-friendly messages
+      toast.error(parseGeminiError(err));
     } finally {
       setLoading(false);
     }
@@ -335,8 +469,7 @@ export function AIResearchPanel() {
       const result = await callGeminiFollowUp(apiKey, currentStock, type);
       setFollowUpText(result);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Unknown error";
-      toast.error(`Follow-up error: ${msg}`);
+      toast.error(parseGeminiError(err));
     } finally {
       setFollowUpLoading(false);
     }
@@ -385,7 +518,8 @@ export function AIResearchPanel() {
         <div className="flex items-center gap-2">
           <Sparkles className="h-5 w-5 text-primary" />
           <h2 className="font-display text-xl font-bold">AI Research</h2>
-          <Badge variant="outline" className="text-[10px]">Gemini + Live Search</Badge>
+          {/* ✅ UPDATED: Badge reflects correct model name */}
+          <Badge variant="outline" className="text-[10px]">Gemini 2.5 Flash + Live Search</Badge>
         </div>
         <button
           onClick={handleClearKey}
@@ -430,7 +564,9 @@ export function AIResearchPanel() {
                 onClick={() => handleLoadHistory(h)}
                 className={cn(
                   "inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition-colors hover:bg-accent",
-                  currentStock === h.query ? "border-primary text-primary bg-accent" : "border-border text-muted-foreground"
+                  currentStock === h.query
+                    ? "border-primary text-primary bg-accent"
+                    : "border-border text-muted-foreground"
                 )}
               >
                 {h.query}
@@ -447,7 +583,9 @@ export function AIResearchPanel() {
           <div className="flex items-center gap-2 mb-4">
             <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
             <span className="text-sm text-muted-foreground">
-              Aurum is researching <span className="font-semibold text-foreground">{currentStock}</span> with live data...
+              Aurum is researching{" "}
+              <span className="font-semibold text-foreground">{currentStock}</span>{" "}
+              with live data...
             </span>
           </div>
           <ReportSkeleton />
@@ -457,7 +595,6 @@ export function AIResearchPanel() {
       {/* Report */}
       {report && !loading && (
         <Card className="p-5" ref={reportRef}>
-          {/* Report header */}
           <div className="flex items-center justify-between mb-1">
             <div className="flex items-center gap-2">
               <h3 className="font-display font-bold text-lg">{currentStock}</h3>
@@ -478,12 +615,13 @@ export function AIResearchPanel() {
             </div>
           </div>
 
-          {/* Report body */}
           <ReportRenderer text={report} />
 
           {/* Follow-up actions */}
           <div className="mt-5 pt-4 border-t border-border">
-            <p className="text-[11px] text-muted-foreground mb-2 font-medium uppercase tracking-wide">Dig deeper</p>
+            <p className="text-[11px] text-muted-foreground mb-2 font-medium uppercase tracking-wide">
+              Dig deeper
+            </p>
             <div className="flex flex-wrap gap-2">
               <Button
                 variant="outline"
@@ -492,7 +630,7 @@ export function AIResearchPanel() {
                 onClick={() => handleFollowUp("redflags")}
                 disabled={followUpLoading}
               >
-                <AlertTriangle className="h-3.5 w-3.5 text-loss" />
+                <AlertTriangle className="h-3.5 w-3.5 text-destructive" />
                 {followUpLoading && followUpType === "redflags" ? "Loading..." : "Top Red Flags"}
               </Button>
               <Button
@@ -515,20 +653,33 @@ export function AIResearchPanel() {
         <Card className="p-5">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
-              {followUpType === "redflags"
-                ? <><AlertTriangle className="h-4 w-4 text-loss" /><h3 className="font-semibold text-sm">Red Flags — {currentStock}</h3></>
-                : <><BarChart2 className="h-4 w-4 text-primary" /><h3 className="font-semibold text-sm">Peer Comparison — {currentStock}</h3></>
-              }
+              {followUpType === "redflags" ? (
+                <>
+                  <AlertTriangle className="h-4 w-4 text-destructive" />
+                  <h3 className="font-semibold text-sm">Red Flags — {currentStock}</h3>
+                </>
+              ) : (
+                <>
+                  <BarChart2 className="h-4 w-4 text-primary" />
+                  <h3 className="font-semibold text-sm">Peer Comparison — {currentStock}</h3>
+                </>
+              )}
             </div>
             <div className="flex gap-1">
               <Button
-                variant="ghost" size="sm"
+                variant="ghost"
+                size="sm"
                 className="h-7 gap-1 text-xs"
                 onClick={() => navigator.clipboard.writeText(followUpText).then(() => toast.success("Copied!"))}
               >
                 <Copy className="h-3 w-3" />
               </Button>
-              <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setFollowUpText(null)}>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 w-7 p-0"
+                onClick={() => setFollowUpText(null)}
+              >
                 <X className="h-3.5 w-3.5" />
               </Button>
             </div>
@@ -537,6 +688,7 @@ export function AIResearchPanel() {
         </Card>
       )}
 
+      {/* Follow-up loading */}
       {followUpLoading && (
         <Card className="p-5">
           <div className="flex items-center gap-2 mb-3">
