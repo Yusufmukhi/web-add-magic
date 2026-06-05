@@ -96,6 +96,8 @@ export function MobileStockRow({ result, onRemove, onTap }: Props) {
 
   const positive = data.dayChange >= 0;
   const signal = getAccumulationSignal(data.volume, data.avgVolume, data.dayChangePct);
+
+  if (swiped) {
     return (
       <div className="flex items-center gap-3 border-b border-border bg-loss/10 px-4 py-3">
         <LogoAvatar />
