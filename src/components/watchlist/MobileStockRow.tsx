@@ -1,5 +1,7 @@
 import { useState, useRef } from "react";
 import { TrendingDown, TrendingUp, AlertCircle } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { getAccumulationSignal } from "@/hooks/useAccumulationSignal";
 import type { QuoteResult } from "@/hooks/useStockQuote";
 import { formatINR, formatChangePct } from "@/utils/formatters";
 import { changeColorClass } from "@/utils/colorHelpers";
@@ -93,8 +95,7 @@ export function MobileStockRow({ result, onRemove, onTap }: Props) {
   }
 
   const positive = data.dayChange >= 0;
-
-  if (swiped) {
+  const signal = getAccumulationSignal(data.volume, data.avgVolume, data.dayChangePct);
     return (
       <div className="flex items-center gap-3 border-b border-border bg-loss/10 px-4 py-3">
         <LogoAvatar />
@@ -132,6 +133,8 @@ export function MobileStockRow({ result, onRemove, onTap }: Props) {
       {/* Symbol + company name */}
       <div className="flex-1 min-w-0">
         <div className="font-mono text-[14px] font-bold leading-tight">{ticker}</div>
+            {signal === "accumulation" && <Badge className="mt-0.5 bg-emerald-500/20 text-emerald-600 text-[9px] px-1 py-0 w-fit">▲ Accum</Badge>}
+            {signal === "distribution" && <Badge className="mt-0.5 bg-orange-500/20 text-orange-600 text-[9px] px-1 py-0 w-fit">▼ Dist</Badge>}
         <div className="truncate text-[12px] text-muted-foreground leading-tight mt-0.5">{data.name}</div>
       </div>
 
