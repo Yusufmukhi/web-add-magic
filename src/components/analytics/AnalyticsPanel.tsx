@@ -6,6 +6,12 @@ import { HoldingsHeatmap } from "./HoldingsHeatmap";
 import { CompareChart } from "./CompareChart";
 import { RiskView } from "./RiskView";
 import { StressTest } from "./StressTest";
+import { DrawdownView } from "./DrawdownView";
+import { BetaView } from "./BetaView";
+import { LiquidityView } from "./LiquidityView";
+import { VaRView } from "./VaRView";
+import { FactorView } from "./FactorView";
+import { MonteCarloView } from "./MonteCarloView";
 import type { Holding } from "@/types/portfolio.types";
 import type { QuoteResult } from "@/hooks/useStockQuote";
 
@@ -19,6 +25,12 @@ export function AnalyticsPanel({ portfolio, results }: Props) {
     <div className="space-y-6">
       <RiskView portfolio={portfolio} results={results} />
       <StressTest portfolio={portfolio} results={results} />
+      <DrawdownView portfolio={portfolio} results={results} />
+      <BetaView portfolio={portfolio} results={results} />
+      <LiquidityView portfolio={portfolio} results={results} />
+      <VaRView portfolio={portfolio} results={results} />
+      <FactorView portfolio={portfolio} results={results} />
+      <MonteCarloView portfolio={portfolio} results={results} />
       <PortfolioVsNiftyChart portfolio={portfolio} />
       <ReturnsComparison portfolio={portfolio} />
       <HoldingsHeatmap portfolio={portfolio} results={results} />
