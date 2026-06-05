@@ -20,8 +20,9 @@ interface ResearchEntry {
 const LS_KEY_API   = "gemini_api_key";
 const LS_KEY_HIST  = "research_history";
 const MAX_HIST     = 5;
+// Use the Lite model on v1beta for the best free quota
 const GEMINI_URL = (key: string) =>
-  `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${key}`;
+  `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${key}`;
 
 const SYSTEM_PROMPT = `You are Aurum, an elite institutional equity research analyst specializing exclusively in Indian stock markets — NSE and BSE listed companies. You have deep expertise in Indian accounting standards (Ind AS), SEBI regulations, sectoral dynamics of the Indian economy, and the behavioral patterns of Indian retail vs institutional investors.
 
@@ -173,7 +174,9 @@ async function callGemini(apiKey: string, userQuery: string): Promise<string> {
     body: JSON.stringify({
       system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
       contents: [{ parts: [{ text: `Analyse this Indian stock for me: ${userQuery}` }] }],
-      tools: [{ googleSearch: {} }],
+      tools: [{ 
+        google_search_retrieval: {} // Updated name for REST API
+      }],
       generationConfig: { temperature: 0.4, maxOutputTokens: 4096 },
     }),
   });
