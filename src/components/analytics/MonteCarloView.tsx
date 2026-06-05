@@ -5,6 +5,7 @@ import type { QuoteResult } from "@/hooks/useStockQuote";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { formatINR } from "@/utils/formatters";
+import { useHistories } from "@/hooks/useHistories";
 
 interface Props {
   portfolio: Holding[];
@@ -26,11 +27,43 @@ interface SimResults {
 const YEAR_OPTIONS = [1, 3, 5, 10] as const;
 const N_SIMS = 500;
 
+/** Pearson correlation between two return series */
+function pearson(a: number[], b: number[]): number {
+  const n = Math.min(a.length, b.length);
+  if (n < 5) return 0;
+  const ax = a.slice(0, n);
+  const bx = b.slice(0, n);
+  const meanA = ax.reduce((s, v) => s + v, 0) / n;
+  const meanB = bx.reduce((s, v) => s + v, 0) / n;
+  let num = 0, varA = 0, varB = 0;
+  for (let i = 0; i < n; i++) {
+    const da = ax[i] - meanA;
+    const db = bx[i] - meanB;
+    num += da * db;
+    varA += da * da;
+    varB += db * db;
+  }
+  const denom = Math.sqrt(varA * varB);
+  return denom === 0 ? 0 : Math.max(-1, Math.min(1, num / denom));
+}
+
+function toReturns(prices: number[]): number[] {
+  const returns: number[] = [];
+  for (let i = 1; i < prices.length; i++) {
+    if (prices[i - 1] > 0) returns.push((prices[i] - prices[i - 1]) / prices[i - 1]);
+  }
+  return returns;
+}
+
 export function MonteCarloView({ portfolio, results }: Props) {
   const [years, setYears] = useState(3);
   const [simResults, setSimResults] = useState<SimResults | null>(null);
   const [running, setRunning] = useState(false);
 
+  const tickers = useMemo(() => portfolio.map((h) => h.ticker), [portfolio]);
+  const { map: historyMap, isLoading: histLoading } = useHistories(tickers, "3mo");
+
+  // ── Build per-holding params ──────────────────────────────────────────────
   const portfolioParams = useMemo(() => {
     if (!portfolio.length) return null;
 
@@ -44,11 +77,23 @@ export function MonteCarloView({ portfolio, results }: Props) {
       const holdingValue = h.qty * currentPrice;
       const d = results.find((x) => x.ticker === h.ticker)?.data;
 
-      const high = d?.fiftyTwoWeekHigh ?? 0;
-      const low = d?.fiftyTwoWeekLow ?? 0;
-      const rangeVol = high > 0 && low > 0 ? (high - low) / low / Math.sqrt(252) : 0.01;
-      const dayVol = Math.abs(d?.dayChangePct ?? 0) / 100;
-      const dailyVol = Math.max(rangeVol, dayVol, 0.01);
+      // Volatility: prefer history-derived, fall back to 52W range
+      const history = historyMap[h.ticker] ?? [];
+      let dailyVol = 0.01;
+      if (history.length >= 10) {
+        const rets = toReturns(history.map((p) => p.close));
+        if (rets.length > 0) {
+          const mean = rets.reduce((s, v) => s + v, 0) / rets.length;
+          const variance = rets.reduce((s, v) => s + (v - mean) ** 2, 0) / rets.length;
+          dailyVol = Math.sqrt(variance);
+        }
+      } else {
+        const high = d?.fiftyTwoWeekHigh ?? 0;
+        const low = d?.fiftyTwoWeekLow ?? 0;
+        const rangeVol = high > 0 && low > 0 ? (high - low) / low / Math.sqrt(252) : 0.01;
+        const dayVol = Math.abs(d?.dayChangePct ?? 0) / 100;
+        dailyVol = Math.max(rangeVol, dayVol, 0.01);
+      }
 
       let annualReturn = 0.08;
       if (d?.revenueGrowth != null) {
@@ -57,32 +102,56 @@ export function MonteCarloView({ portfolio, results }: Props) {
         annualReturn = Math.min(Math.max(d.returnOnEquity * 0.5, -0.3), 0.5);
       }
 
-      return { holdingValue, dailyVol, annualReturn };
+      return { ticker: h.ticker, holdingValue, dailyVol, annualReturn };
     });
 
     const totalValue = rows.reduce((s, r) => s + r.holdingValue, 0);
     if (totalValue === 0) return null;
 
+    const weights = rows.map((r) => r.holdingValue / totalValue);
+
+    // Weighted portfolio mu
     const portfolioMu = rows.reduce(
-      (s, r) => s + (r.holdingValue / totalValue) * r.annualReturn,
+      (s, r, i) => s + weights[i] * r.annualReturn,
       0
     );
-    const portfolioSigma =
-      rows.reduce((s, r) => s + (r.holdingValue / totalValue) * r.dailyVol, 0) *
-      Math.sqrt(252);
+
+    // ── FIXED: Proper portfolio variance = Σᵢ Σⱼ wᵢ wⱼ σᵢ σⱼ ρᵢⱼ ──────────
+    // Build return series for correlation
+    const returnSeries: Record<string, number[]> = {};
+    for (const r of rows) {
+      const hist = historyMap[r.ticker] ?? [];
+      if (hist.length >= 10) {
+        returnSeries[r.ticker] = toReturns(hist.map((p) => p.close));
+      }
+    }
+
+    let portfolioVariance = 0;
+    for (let i = 0; i < rows.length; i++) {
+      for (let j = 0; j < rows.length; j++) {
+        let rho = i === j ? 1 : 0;
+        const seriesI = returnSeries[rows[i].ticker];
+        const seriesJ = returnSeries[rows[j].ticker];
+        if (i !== j && seriesI && seriesJ) {
+          rho = pearson(seriesI, seriesJ);
+        }
+        portfolioVariance +=
+          weights[i] * weights[j] * rows[i].dailyVol * rows[j].dailyVol * rho;
+      }
+    }
+    const portfolioSigma = Math.sqrt(Math.max(portfolioVariance, 0)) * Math.sqrt(252);
 
     return { totalValue, portfolioMu, portfolioSigma };
-  }, [portfolio, results]);
+  }, [portfolio, results, historyMap]);
 
   const runSimulation = useCallback(() => {
     if (!portfolioParams) return;
     setRunning(true);
 
-    // Defer to next tick so UI updates first
     setTimeout(() => {
       const { totalValue, portfolioMu, portfolioSigma } = portfolioParams;
       const days = years * 252;
-      const snapshotEvery = 21; // monthly
+      const snapshotEvery = 21;
       const allFinals: number[] = [];
       const allPaths: number[][] = [];
 
@@ -132,7 +201,6 @@ export function MonteCarloView({ portfolio, results }: Props) {
         <h2 className="text-lg font-semibold">Monte Carlo Simulation</h2>
       </div>
 
-      {/* Controls */}
       <div className="flex items-center gap-3 mb-4">
         <span className="text-sm text-muted-foreground">Horizon:</span>
         <div className="flex gap-1">
@@ -154,11 +222,11 @@ export function MonteCarloView({ portfolio, results }: Props) {
         <Button
           size="sm"
           onClick={runSimulation}
-          disabled={running}
+          disabled={running || histLoading}
           className="h-7 gap-1.5"
         >
           <Dices className="h-3.5 w-3.5" />
-          {running ? "Running..." : simResults ? "Re-run" : "Run Simulation"}
+          {histLoading ? "Loading data..." : running ? "Running..." : simResults ? "Re-run" : "Run Simulation"}
         </Button>
       </div>
 
@@ -166,7 +234,7 @@ export function MonteCarloView({ portfolio, results }: Props) {
         <div className="rounded-2xl border border-dashed border-border p-10 text-center">
           <Dices className="h-8 w-8 text-muted-foreground/40 mx-auto mb-2" />
           <p className="text-sm text-muted-foreground">
-            Runs 500 simulated futures using your portfolio's real volatility
+            Runs 500 simulated futures using your portfolio's real volatility & correlations
           </p>
           <p className="text-xs text-muted-foreground/60 mt-1">
             Select horizon above and click Run Simulation
@@ -182,7 +250,6 @@ export function MonteCarloView({ portfolio, results }: Props) {
 
       {simResults && !running && (
         <div className="space-y-4">
-          {/* Outcome cards */}
           <div className="grid gap-4 md:grid-cols-3">
             <Card>
               <CardHeader className="pb-1">
@@ -218,7 +285,6 @@ export function MonteCarloView({ portfolio, results }: Props) {
             </Card>
           </div>
 
-          {/* Probability card */}
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">Probability</CardTitle>
@@ -239,7 +305,6 @@ export function MonteCarloView({ portfolio, results }: Props) {
             </CardContent>
           </Card>
 
-          {/* SVG paths */}
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">
@@ -248,8 +313,9 @@ export function MonteCarloView({ portfolio, results }: Props) {
             </CardHeader>
             <CardContent>
               <SimPathChart simResults={simResults} />
+              {/* FIXED: clarified median path label */}
               <p className="text-[10px] text-muted-foreground mt-2">
-                Green = profit scenarios · Red = loss scenarios · Bold line = median · Dashed = 10th/90th percentile
+                Green = profit scenarios · Red = loss scenarios · Bold line = closest-to-median path · Dashed = 10th/90th percentile
               </p>
             </CardContent>
           </Card>
@@ -277,7 +343,7 @@ function SimPathChart({ simResults }: { simResults: SimResults }) {
   const pathString = (pts: number[]) =>
     pts.map((v, i) => `${toX(i).toFixed(1)},${toY(v).toFixed(1)}`).join(" ");
 
-  // Median path approximation using simResults.median (final value)
+  // Closest-to-median path (labelled clearly in legend)
   const medianPath = paths.reduce((best, path) => {
     const finalV = path[path.length - 1];
     const bestFinalV = best[best.length - 1];
@@ -290,47 +356,25 @@ function SimPathChart({ simResults }: { simResults: SimResults }) {
 
   return (
     <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: 160 }}>
-      {/* Baseline */}
-      <line
-        x1="0" y1={baselineY} x2={W} y2={baselineY}
-        stroke="currentColor" strokeDasharray="4 3" strokeOpacity={0.3} strokeWidth={1}
-      />
-      {/* p10 */}
-      <line
-        x1="0" y1={p10Y} x2={W} y2={p10Y}
-        stroke="#ef4444" strokeDasharray="3 3" strokeOpacity={0.4} strokeWidth={1}
-      />
-      {/* p90 */}
-      <line
-        x1="0" y1={p90Y} x2={W} y2={p90Y}
-        stroke="#10b981" strokeDasharray="3 3" strokeOpacity={0.4} strokeWidth={1}
-      />
+      <line x1="0" y1={baselineY} x2={W} y2={baselineY}
+        stroke="currentColor" strokeDasharray="4 3" strokeOpacity={0.3} strokeWidth={1} />
+      <line x1="0" y1={p10Y} x2={W} y2={p10Y}
+        stroke="#ef4444" strokeDasharray="3 3" strokeOpacity={0.4} strokeWidth={1} />
+      <line x1="0" y1={p90Y} x2={W} y2={p90Y}
+        stroke="#10b981" strokeDasharray="3 3" strokeOpacity={0.4} strokeWidth={1} />
 
-      {/* 50 paths */}
       {paths.map((path, i) => {
         const finalV = path[path.length - 1];
         const isProfit = finalV >= totalValue;
         return (
-          <polyline
-            key={i}
-            points={pathString(path)}
-            fill="none"
-            stroke={isProfit ? "#10b981" : "#ef4444"}
-            strokeWidth={0.8}
-            strokeOpacity={0.15}
-          />
+          <polyline key={i} points={pathString(path)} fill="none"
+            stroke={isProfit ? "#10b981" : "#ef4444"} strokeWidth={0.8} strokeOpacity={0.15} />
         );
       })}
 
-      {/* Median path */}
       {medianPath.length > 0 && (
-        <polyline
-          points={pathString(medianPath)}
-          fill="none"
-          stroke="#10b981"
-          strokeWidth={2}
-          strokeOpacity={0.9}
-        />
+        <polyline points={pathString(medianPath)} fill="none"
+          stroke="#6366f1" strokeWidth={2.5} strokeOpacity={0.9} />
       )}
     </svg>
   );
