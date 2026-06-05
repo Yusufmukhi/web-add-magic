@@ -20,29 +20,6 @@ interface ResearchEntry {
 const LS_KEY_API   = "gemini_api_key";
 const LS_KEY_HIST  = "research_history";
 const MAX_HIST     = 5;
-// Update the model to gemini-1.5-flash
-import { useState, useEffect, useRef } from "react";
-import { Sparkles, Search, Copy, Trash2, AlertTriangle, BarChart2, Key, X, ChevronRight } from "lucide-react";
-import { toast } from "sonner";
-import { Card } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import { cn } from "@/lib/utils";
-
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-interface ResearchEntry {
-  query: string;
-  report: string;
-  timestamp: number;
-}
-
-// ─── Constants ────────────────────────────────────────────────────────────────
-
-const LS_KEY_API   = "gemini_api_key";
-const LS_KEY_HIST  = "research_history";
-const MAX_HIST     = 5;
 const GEMINI_URL = (key: string) =>
   `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${key}`;
 
@@ -593,4 +570,3 @@ export function AIResearchPanel() {
     </div>
   );
 }
-
