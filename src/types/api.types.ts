@@ -21,6 +21,9 @@ export interface QuoteApiResponse {
         marketCap?: RawField;
         trailingPE?: RawField;
         dividendYield?: RawField;
+        volume?: RawField;
+        averageVolume?: RawField;
+        averageDailyVolume3Month?: RawField;
       };
       financialData?: {
         currentPrice?: RawField;
