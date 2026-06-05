@@ -12,6 +12,7 @@ import { LiquidityView } from "./LiquidityView";
 import { VaRView } from "./VaRView";
 import { FactorView } from "./FactorView";
 import { MonteCarloView } from "./MonteCarloView";
+import { CorrelationMatrix } from "./CorrelationMatrix";
 import type { Holding } from "@/types/portfolio.types";
 import type { QuoteResult } from "@/hooks/useStockQuote";
 
@@ -31,6 +32,7 @@ export function AnalyticsPanel({ portfolio, results }: Props) {
       <VaRView portfolio={portfolio} results={results} />
       <FactorView portfolio={portfolio} results={results} />
       <MonteCarloView portfolio={portfolio} results={results} />
+      <CorrelationMatrix portfolio={portfolio} />
       <PortfolioVsNiftyChart portfolio={portfolio} />
       <ReturnsComparison portfolio={portfolio} />
       <HoldingsHeatmap portfolio={portfolio} results={results} />
