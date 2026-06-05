@@ -4,6 +4,7 @@ import { PortfolioVsNiftyChart } from "./PortfolioVsNiftyChart";
 import { ReturnsComparison } from "./ReturnsComparison";
 import { HoldingsHeatmap } from "./HoldingsHeatmap";
 import { CompareChart } from "./CompareChart";
+import { RiskView } from "./RiskView";
 import type { Holding } from "@/types/portfolio.types";
 import type { QuoteResult } from "@/hooks/useStockQuote";
 
@@ -15,6 +16,7 @@ interface Props {
 export function AnalyticsPanel({ portfolio, results }: Props) {
   return (
     <div className="space-y-6">
+      <RiskView portfolio={portfolio} results={results} />
       <PortfolioVsNiftyChart portfolio={portfolio} />
       <ReturnsComparison portfolio={portfolio} />
       <HoldingsHeatmap portfolio={portfolio} results={results} />
