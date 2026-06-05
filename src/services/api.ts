@@ -61,6 +61,8 @@ export async function fetchQuote(ticker: string): Promise<StockQuote> {
     revenueGrowth: fd.revenueGrowth?.raw ?? null,
     heldPercentInsiders: ks.heldPercentInsiders?.raw ?? null,
     heldPercentInstitutions: ks.heldPercentInstitutions?.raw ?? null,
+    volume: sd.volume?.raw ?? null,
+    avgVolume: sd.averageVolume?.raw ?? sd.averageDailyVolume3Month?.raw ?? null,
   };
 }
 
