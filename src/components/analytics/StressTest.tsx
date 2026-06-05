@@ -3,6 +3,7 @@ import { Zap } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { Holding } from "@/types/portfolio.types";
 import type { QuoteResult } from "@/hooks/useStockQuote";
+import { useLocalStorage } from "@/hooks/useLocalStorage";
 
 interface Props {
   portfolio: Holding[];
@@ -11,26 +12,18 @@ interface Props {
 
 export function StressTest({ portfolio, results }: Props) {
   const [dropPct, setDropPct] = useState(20);
-  const [betaOverrides, setBetaOverrides] = useState<Record<string, number>>(
-    () => {
-      try {
-        const raw = localStorage.getItem("stress_beta_overrides");
-        return raw ? JSON.parse(raw) : {};
-      } catch {
-        return {};
-      }
-    }
+  // FIXED: use useLocalStorage hook instead of raw localStorage
+  const [betaOverrides, setBetaOverrides] = useLocalStorage<Record<string, number>>(
+    "stress_beta_overrides",
+    {}
   );
 
   if (!portfolio.length) return null;
 
   const saveBeta = (ticker: string, val: number) => {
-    const next = { ...betaOverrides, [ticker]: val };
-    setBetaOverrides(next);
-    localStorage.setItem("stress_beta_overrides", JSON.stringify(next));
+    setBetaOverrides((prev) => ({ ...prev, [ticker]: val }));
   };
 
-  // Build price map
   const priceMap: Record<string, number> = {};
   for (const result of results) {
     if (result.data?.cmp) {
@@ -38,7 +31,6 @@ export function StressTest({ portfolio, results }: Props) {
     }
   }
 
-  // Compute per-holding stress values
   const rows = portfolio.map((h) => {
     const cmp = priceMap[h.ticker] ?? h.avgPrice;
     const currentValue = h.qty * cmp;
@@ -69,7 +61,6 @@ export function StressTest({ portfolio, results }: Props) {
         </p>
       </CardHeader>
       <CardContent className="space-y-5">
-        {/* Slider */}
         <div className="space-y-2">
           <label className="text-sm font-medium">
             If Nifty drops{" "}
@@ -90,7 +81,6 @@ export function StressTest({ portfolio, results }: Props) {
           </div>
         </div>
 
-        {/* Summary row */}
         <div className="grid grid-cols-3 gap-3">
           <div className="rounded-lg bg-muted/50 p-3 text-center">
             <p className="text-xs text-muted-foreground mb-1">Current Value</p>
@@ -102,13 +92,10 @@ export function StressTest({ portfolio, results }: Props) {
           </div>
           <div className="rounded-lg bg-red-500/10 p-3 text-center">
             <p className="text-xs text-muted-foreground mb-1">Estimated Loss</p>
-            <p className="text-sm font-semibold text-red-500">
-              -{fmt(totalLoss)}
-            </p>
+            <p className="text-sm font-semibold text-red-500">-{fmt(totalLoss)}</p>
           </div>
         </div>
 
-        {/* Table */}
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -122,10 +109,7 @@ export function StressTest({ portfolio, results }: Props) {
             </thead>
             <tbody>
               {rows.map((row) => (
-                <tr
-                  key={row.ticker}
-                  className="border-b border-border/50 last:border-0"
-                >
+                <tr key={row.ticker} className="border-b border-border/50 last:border-0">
                   <td className="py-2 pr-3 font-medium">{row.ticker}</td>
                   <td className="py-2 px-3 text-center">
                     <input
@@ -134,28 +118,19 @@ export function StressTest({ portfolio, results }: Props) {
                       max={3}
                       step={0.1}
                       value={betaOverrides[row.ticker] ?? 1.0}
-                      onChange={(e) =>
-                        saveBeta(row.ticker, parseFloat(e.target.value))
-                      }
+                      onChange={(e) => saveBeta(row.ticker, parseFloat(e.target.value))}
                       className="w-16 text-center text-sm bg-muted rounded px-1 py-0.5 border border-border focus:outline-none focus:ring-1 focus:ring-primary"
                     />
                   </td>
-                  <td className="py-2 px-3 text-right text-muted-foreground">
-                    {fmt(row.currentValue)}
-                  </td>
-                  <td className="py-2 px-3 text-right">
-                    {fmt(row.valueAfterDrop)}
-                  </td>
-                  <td className="py-2 pl-3 text-right text-red-500 font-medium">
-                    -{fmt(row.loss)}
-                  </td>
+                  <td className="py-2 px-3 text-right text-muted-foreground">{fmt(row.currentValue)}</td>
+                  <td className="py-2 px-3 text-right">{fmt(row.valueAfterDrop)}</td>
+                  <td className="py-2 pl-3 text-right text-red-500 font-medium">-{fmt(row.loss)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
 
-        {/* Footer */}
         <p className="text-xs text-muted-foreground">
           Beta = 1 means stock moves with Nifty. Beta 1.5 = 50% more volatile.
           Edit betas to match your stocks.
