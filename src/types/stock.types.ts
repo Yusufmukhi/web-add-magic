@@ -30,6 +30,8 @@ export interface StockQuote {
   revenueGrowth: number | null;
   heldPercentInsiders: number | null;
   heldPercentInstitutions: number | null;
+  volume: number | null;
+  avgVolume: number | null;
 }
 
 export interface RatingResult {
