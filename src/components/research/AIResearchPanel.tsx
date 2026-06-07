@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import {
   Sparkles, Search, Copy, AlertTriangle, BarChart2,
-  Key, X, ChevronRight,
+  Key, X, ChevronRight, TrendingUp,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Card } from "@/components/ui/card";
@@ -18,20 +18,21 @@ interface ResearchEntry {
   timestamp: number;
 }
 
-// Gemini response part type — text or thought block
 type GeminiPart = { text?: string; thought?: boolean };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const LS_KEY_API  = "gemini_api_key";
 const LS_KEY_HIST = "research_history";
-const MAX_HIST    = 8; // ✅ Increased from 5
+const MAX_HIST    = 8;
 
-// ✅ FIX 1: Updated to gemini-2.5-flash — best free model (1,500 req/day, 10 RPM)
-// Old: gemini-2.0-flash-lite
-const GEMINI_MODEL = "gemini-2.5-flash";
+// FIX: Updated model string — full preview name routes reliably
+const GEMINI_MODEL = "gemini-2.5-flash-preview-04-17";
 const GEMINI_URL = (key: string) =>
   `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${key}`;
+// FIX: Streaming endpoint
+const GEMINI_STREAM_URL = (key: string) =>
+  `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:streamGenerateContent?alt=sse&key=${key}`;
 
 const SYSTEM_PROMPT = `You are Aurum, an elite institutional equity research analyst specializing exclusively in Indian stock markets — NSE and BSE listed companies. You have deep expertise in Indian accounting standards (Ind AS), SEBI regulations, sectoral dynamics of the Indian economy, and the behavioral patterns of Indian retail vs institutional investors.
 
@@ -81,8 +82,8 @@ When asked to analyse a stock, always follow this exact structure:
 ## 🎯 Verdict
 **Recommendation: BUY / ACCUMULATE / HOLD / REDUCE / AVOID**
 **Current Price: ₹___**
-**Target Price (12 months): ₹___ (upside: __%)**
-**Stop Loss: ₹___ (downside: __%)**
+**Target Price (12 months): ₹___ (upside: __%)** 
+**Stop Loss: ₹___ (downside: __%)** 
 **Risk-Reward Ratio: X:1**
 **Investment Horizon: Short term (< 6M) / Medium term (6-18M) / Long term (2-3Y)**
 **Conviction Level: High / Medium / Low**
@@ -119,7 +120,6 @@ function timeAgo(ts: number): string {
   return `${Math.floor(h / 24)}d ago`;
 }
 
-// ✅ NEW: Human-readable error messages for common Gemini API errors
 function parseGeminiError(err: unknown): string {
   if (!(err instanceof Error)) return "Unknown error occurred.";
   const msg = err.message;
@@ -134,7 +134,6 @@ function parseGeminiError(err: unknown): string {
   return msg;
 }
 
-// ✅ NEW: Safely extract only visible text parts (skips thought/thinking blocks in Gemini 2.5)
 function extractText(parts: GeminiPart[] | undefined): string {
   if (!Array.isArray(parts)) return "";
   return parts
@@ -143,7 +142,7 @@ function extractText(parts: GeminiPart[] | undefined): string {
     .join("");
 }
 
-// ─── Markdown renderer (with table + numbered list support) ───────────────────
+// ─── Markdown renderer ───────────────────────────────────────────────────────
 
 function ReportRenderer({ text }: { text: string }) {
   const lines = text.split("\n");
@@ -165,14 +164,19 @@ function ReportRenderer({ text }: { text: string }) {
           {line.replace("### ", "")}
         </h3>
       );
+    } else if (line.match(/^---+$/)) {
+      rawElements.push(<hr key={key++} className="my-3 border-border" />);
+    } else if (line.startsWith("> ")) {
+      rawElements.push(
+        <blockquote key={key++} className="my-2 border-l-2 border-primary/40 pl-3 text-sm italic text-muted-foreground">
+          {line.slice(2)}
+        </blockquote>
+      );
     } else if (line.startsWith("| ")) {
-      // ✅ NEW: Table row — wrap in <tr>/<td> and buffer for table wrapper
       const cells = line.split("|").filter((c) => c.trim()).map((c) => c.trim());
       const nextLine = lines[i + 1] ?? "";
       const isSeparator = /^[\|\-\s]+$/.test(nextLine);
-
       if (isSeparator) {
-        // Header row
         rawElements.push(
           <tr key={key++} data-table-row="header" className="bg-muted/60">
             {cells.map((c, j) => (
@@ -183,7 +187,7 @@ function ReportRenderer({ text }: { text: string }) {
           </tr>
         );
       } else if (/^[\|\-\s]+$/.test(line)) {
-        // Separator row — skip
+        // separator row — skip
       } else {
         rawElements.push(
           <tr key={key++} data-table-row="body" className="even:bg-muted/20 hover:bg-muted/30 transition-colors">
@@ -203,7 +207,6 @@ function ReportRenderer({ text }: { text: string }) {
         </div>
       );
     } else if (/^\d+\.\s/.test(line)) {
-      // ✅ NEW: Numbered list item
       const num = line.match(/^(\d+)\./)?.[1] ?? "•";
       const content = line.replace(/^\d+\.\s/, "");
       rawElements.push(
@@ -232,7 +235,7 @@ function ReportRenderer({ text }: { text: string }) {
     }
   }
 
-  // ✅ NEW: Wrap consecutive <tr> elements in a <table>
+  // Wrap consecutive <tr> elements in a <table>
   const finalElements: React.ReactNode[] = [];
   let tableRows: React.ReactNode[] = [];
 
@@ -268,23 +271,23 @@ function formatInline(text: string): string {
     .replace(/`(.+?)`/g, "<code class='bg-muted px-1 rounded text-xs'>$1</code>");
 }
 
-// ─── API: Main stock analysis ──────────────────────────────────────────────────
+// ─── FIX: Streaming API call ──────────────────────────────────────────────────
 
-async function callGemini(apiKey: string, userQuery: string): Promise<string> {
-  const res = await fetch(GEMINI_URL(apiKey), {
+async function callGeminiStream(
+  apiKey: string,
+  userQuery: string,
+  onChunk: (text: string) => void
+): Promise<string> {
+  const res = await fetch(GEMINI_STREAM_URL(apiKey), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
       contents: [{ parts: [{ text: `Analyse this Indian stock for me: ${userQuery}` }] }],
-      // ✅ FIX 2: Correct tool key for Gemini 2.5 Flash
-      // Old: google_search_retrieval: {}   ← worked only for 1.5 models
-      // New: google_search: {}             ← correct for 2.0+ models
       tools: [{ google_search: {} }],
       generationConfig: {
         temperature: 0.4,
-        maxOutputTokens: 8192, // ✅ Increased from 4096 for more detailed reports
-        // ✅ NEW: Disable thinking mode for faster responses (Gemini 2.5 Flash feature)
+        maxOutputTokens: 8192,
         thinkingConfig: { thinkingBudget: 0 },
       },
     }),
@@ -296,15 +299,44 @@ async function callGemini(apiKey: string, userQuery: string): Promise<string> {
     throw new Error(msg);
   }
 
-  const data = await res.json();
-  // ✅ FIX 3: Use extractText() to skip thought blocks that Gemini 2.5 may return
-  // Old: data?.candidates?.[0]?.content?.parts?.[0]?.text  ← breaks with thinking blocks
-  const text = extractText(data?.candidates?.[0]?.content?.parts);
-  if (!text) throw new Error("Empty response from Gemini. The model may not have found data for this stock.");
-  return text;
+  const reader = res.body?.getReader();
+  if (!reader) throw new Error("No response body");
+
+  const decoder = new TextDecoder();
+  let fullText = "";
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+
+    for (const line of lines) {
+      if (!line.startsWith("data: ")) continue;
+      const jsonStr = line.slice(6).trim();
+      if (jsonStr === "[DONE]") continue;
+      try {
+        const parsed = JSON.parse(jsonStr);
+        const parts = parsed?.candidates?.[0]?.content?.parts as GeminiPart[] | undefined;
+        const chunk = extractText(parts);
+        if (chunk) {
+          fullText += chunk;
+          onChunk(fullText);
+        }
+      } catch {
+        // partial JSON — skip
+      }
+    }
+  }
+
+  if (!fullText) throw new Error("Empty response from Gemini.");
+  return fullText;
 }
 
-// ─── API: Follow-up queries ────────────────────────────────────────────────────
+// ─── Non-streaming follow-up ──────────────────────────────────────────────────
 
 async function callGeminiFollowUp(
   apiKey: string,
@@ -321,12 +353,10 @@ async function callGeminiFollowUp(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       contents: [{ parts: [{ text: prompt }] }],
-      // ✅ FIX 4: Correct tool key (was googleSearch: {} — a typo that silently fails)
       tools: [{ google_search: {} }],
       generationConfig: {
         temperature: 0.3,
         maxOutputTokens: 4096,
-        // ✅ NEW: Disable thinking for faster follow-up responses
         thinkingConfig: { thinkingBudget: 0 },
       },
     }),
@@ -339,7 +369,6 @@ async function callGeminiFollowUp(
   }
 
   const data = await res.json();
-  // ✅ FIX 5: Use extractText() consistently
   const text = extractText(data?.candidates?.[0]?.content?.parts);
   if (!text) throw new Error("Empty response from Gemini.");
   return text;
@@ -406,7 +435,6 @@ function ApiKeySetup({ onSave }: { onSave: (key: string) => void }) {
         />
         <Button onClick={handleSave} className="shrink-0">Save Key</Button>
       </div>
-      {/* ✅ NEW: Privacy note about free tier data usage */}
       <p className="text-[11px] text-muted-foreground">
         Your key is stored locally in your browser only — never sent anywhere except Google's API.{" "}
         <span className="text-amber-500/80">Note: on the free tier, Google may use prompts for model
@@ -418,47 +446,70 @@ function ApiKeySetup({ onSave }: { onSave: (key: string) => void }) {
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
-export function AIResearchPanel() {
+interface AIResearchPanelProps {
+  prefillTicker?: string;
+  onPrefillConsumed?: () => void;
+}
+
+export function AIResearchPanel({ prefillTicker, onPrefillConsumed }: AIResearchPanelProps = {}) {
   const [apiKey, setApiKey]           = useState<string>(() => localStorage.getItem(LS_KEY_API) ?? "");
   const [query, setQuery]             = useState("");
   const [report, setReport]           = useState<string | null>(null);
   const [currentStock, setCurrentStock] = useState("");
   const [loading, setLoading]         = useState(false);
+  const [streamingText, setStreamingText] = useState<string>("");
   const [followUpText, setFollowUpText] = useState<string | null>(null);
   const [followUpType, setFollowUpType] = useState<"redflags" | "peers" | null>(null);
   const [followUpLoading, setFollowUpLoading] = useState(false);
   const [history, setHistory]         = useState<ResearchEntry[]>(loadHistory);
   const reportRef = useRef<HTMLDivElement>(null);
 
-  // Persist history to localStorage
   useEffect(() => { saveHistory(history); }, [history]);
 
-  const handleAnalyse = async (stockQuery?: string) => {
+  // Handle prefill from Picks panel
+  useEffect(() => {
+    if (prefillTicker && prefillTicker.trim()) {
+      setQuery(prefillTicker.trim());
+      onPrefillConsumed?.();
+      // Auto-trigger analysis if key is available
+      if (apiKey) {
+        setTimeout(() => handleAnalyse(prefillTicker.trim()), 100);
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefillTicker]);
+
+  // FIX: Use streaming for main analysis
+  const handleAnalyse = useCallback(async (stockQuery?: string) => {
     const q = (stockQuery ?? query).trim();
     if (!q) { toast.error("Enter a stock name or ticker"); return; }
     if (!apiKey) { toast.error("Add your Gemini API key first"); return; }
 
     setLoading(true);
     setReport(null);
+    setStreamingText("");
     setFollowUpText(null);
     setFollowUpType(null);
     setCurrentStock(q.toUpperCase());
 
+    setTimeout(() => reportRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
+
     try {
-      const result = await callGemini(apiKey, q);
+      const result = await callGeminiStream(apiKey, q, (partial) => {
+        setStreamingText(partial);
+      });
+      setStreamingText("");
       setReport(result);
       setHistory((prev) => {
         const filtered = prev.filter((h) => h.query.toLowerCase() !== q.toLowerCase());
         return [{ query: q.toUpperCase(), report: result, timestamp: Date.now() }, ...filtered];
       });
-      setTimeout(() => reportRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
     } catch (err) {
-      // ✅ IMPROVEMENT: Use parseGeminiError for user-friendly messages
       toast.error(parseGeminiError(err));
     } finally {
       setLoading(false);
     }
-  };
+  }, [apiKey, query]);
 
   const handleFollowUp = async (type: "redflags" | "peers") => {
     if (!currentStock || !apiKey) return;
@@ -491,12 +542,16 @@ export function AIResearchPanel() {
     setReport(entry.report);
     setCurrentStock(entry.query);
     setQuery(entry.query);
+    setStreamingText("");
     setFollowUpText(null);
     setFollowUpType(null);
     setTimeout(() => reportRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
   };
 
-  // ── No API key → show setup ──
+  // Determine what to show in the report card
+  const displayText = loading ? streamingText : report;
+  const isStreaming = loading && streamingText.length > 0;
+
   if (!apiKey) {
     return (
       <div className="space-y-4">
@@ -510,7 +565,6 @@ export function AIResearchPanel() {
     );
   }
 
-  // ── Main UI ──
   return (
     <div className="space-y-5">
       {/* Header */}
@@ -518,8 +572,7 @@ export function AIResearchPanel() {
         <div className="flex items-center gap-2">
           <Sparkles className="h-5 w-5 text-primary" />
           <h2 className="font-display text-xl font-bold">AI Research</h2>
-          {/* ✅ UPDATED: Badge reflects correct model name */}
-          <Badge variant="outline" className="text-[10px]">Gemini 2.5 Flash + Live Search</Badge>
+          <Badge variant="outline" className="text-[10px]">Gemini 2.5 Flash · Live Search · Streaming</Badge>
         </div>
         <button
           onClick={handleClearKey}
@@ -554,7 +607,6 @@ export function AIResearchPanel() {
           </Button>
         </div>
 
-        {/* History chips */}
         {history.length > 0 && (
           <div className="flex flex-wrap gap-1.5 pt-1">
             <span className="text-[11px] text-muted-foreground self-center">Recent:</span>
@@ -577,8 +629,8 @@ export function AIResearchPanel() {
         )}
       </Card>
 
-      {/* Loading skeleton */}
-      {loading && (
+      {/* Loading skeleton — only shows before first stream chunk */}
+      {loading && !isStreaming && (
         <Card className="p-5">
           <div className="flex items-center gap-2 mb-4">
             <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
@@ -592,59 +644,69 @@ export function AIResearchPanel() {
         </Card>
       )}
 
-      {/* Report */}
-      {report && !loading && (
+      {/* Streaming / final report card */}
+      {displayText && (
         <Card className="p-5" ref={reportRef}>
           <div className="flex items-center justify-between mb-1">
             <div className="flex items-center gap-2">
               <h3 className="font-display font-bold text-lg">{currentStock}</h3>
               <Badge variant="outline" className="text-[10px]">Aurum Report</Badge>
+              {isStreaming && (
+                <span className="flex items-center gap-1 text-[10px] text-primary">
+                  <span className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />
+                  Streaming...
+                </span>
+              )}
             </div>
-            <div className="flex gap-1.5">
-              <Button variant="ghost" size="sm" onClick={handleCopy} className="h-7 gap-1 text-xs">
-                <Copy className="h-3 w-3" /> Copy
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => { setReport(null); setFollowUpText(null); setCurrentStock(""); }}
-                className="h-7 w-7 p-0"
-              >
-                <X className="h-3.5 w-3.5" />
-              </Button>
-            </div>
+            {!loading && (
+              <div className="flex gap-1.5">
+                <Button variant="ghost" size="sm" onClick={handleCopy} className="h-7 gap-1 text-xs">
+                  <Copy className="h-3 w-3" /> Copy
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => { setReport(null); setStreamingText(""); setFollowUpText(null); setCurrentStock(""); }}
+                  className="h-7 w-7 p-0"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            )}
           </div>
 
-          <ReportRenderer text={report} />
+          <ReportRenderer text={displayText} />
 
-          {/* Follow-up actions */}
-          <div className="mt-5 pt-4 border-t border-border">
-            <p className="text-[11px] text-muted-foreground mb-2 font-medium uppercase tracking-wide">
-              Dig deeper
-            </p>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-1.5 text-xs h-8"
-                onClick={() => handleFollowUp("redflags")}
-                disabled={followUpLoading}
-              >
-                <AlertTriangle className="h-3.5 w-3.5 text-destructive" />
-                {followUpLoading && followUpType === "redflags" ? "Loading..." : "Top Red Flags"}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-1.5 text-xs h-8"
-                onClick={() => handleFollowUp("peers")}
-                disabled={followUpLoading}
-              >
-                <BarChart2 className="h-3.5 w-3.5 text-primary" />
-                {followUpLoading && followUpType === "peers" ? "Loading..." : "Compare with Peers"}
-              </Button>
+          {/* Follow-up actions — only show when report is complete */}
+          {!loading && (
+            <div className="mt-5 pt-4 border-t border-border">
+              <p className="text-[11px] text-muted-foreground mb-2 font-medium uppercase tracking-wide">
+                Dig deeper
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 text-xs h-8"
+                  onClick={() => handleFollowUp("redflags")}
+                  disabled={followUpLoading}
+                >
+                  <AlertTriangle className="h-3.5 w-3.5 text-destructive" />
+                  {followUpLoading && followUpType === "redflags" ? "Loading..." : "Top Red Flags"}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 text-xs h-8"
+                  onClick={() => handleFollowUp("peers")}
+                  disabled={followUpLoading}
+                >
+                  <BarChart2 className="h-3.5 w-3.5 text-primary" />
+                  {followUpLoading && followUpType === "peers" ? "Loading..." : "Compare with Peers"}
+                </Button>
+              </div>
             </div>
-          </div>
+          )}
         </Card>
       )}
 
@@ -688,7 +750,6 @@ export function AIResearchPanel() {
         </Card>
       )}
 
-      {/* Follow-up loading */}
       {followUpLoading && (
         <Card className="p-5">
           <div className="flex items-center gap-2 mb-3">
@@ -702,12 +763,12 @@ export function AIResearchPanel() {
       )}
 
       {/* Empty state */}
-      {!report && !loading && (
+      {!displayText && !loading && (
         <div className="rounded-2xl border border-dashed border-border p-10 text-center space-y-2">
           <Sparkles className="h-8 w-8 text-muted-foreground/40 mx-auto" />
           <p className="text-sm font-medium text-muted-foreground">Type any NSE stock above</p>
           <p className="text-xs text-muted-foreground/60">
-            Aurum will fetch live data and generate an institutional-grade report
+            Aurum will stream live data as it generates — results appear instantly
           </p>
           <div className="flex flex-wrap justify-center gap-2 pt-2">
             {["APOLLOMICRO", "TATAMOTORS", "IRFC", "ZOMATO", "DIXON"].map((s) => (
@@ -721,6 +782,19 @@ export function AIResearchPanel() {
             ))}
           </div>
         </div>
+      )}
+
+      {/* Portfolio Health Check promo */}
+      {!displayText && !loading && (
+        <Card className="p-4 border-dashed border-primary/30 bg-primary/5">
+          <div className="flex items-center gap-2 mb-1">
+            <TrendingUp className="h-4 w-4 text-primary" />
+            <span className="text-xs font-semibold text-foreground">New: Stock Picks & Smart Money</span>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Check the <span className="font-medium text-foreground">Picks</span> tab for AI-curated large/mid/small cap and SME picks, FII/DII accumulation signals, and ace investor tracking.
+          </p>
+        </Card>
       )}
     </div>
   );
