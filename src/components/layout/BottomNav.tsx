@@ -1,14 +1,14 @@
-import { Home, ListChecks, Briefcase, LineChart, Receipt, Settings as SettingsIcon, Sparkles } from "lucide-react";
+import { Home, ListChecks, Briefcase, LineChart, Target, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-export type NavTab = "home" | "watchlist" | "portfolio" | "analytics" | "transactions" | "settings" | "planning" | "research";
+export type NavTab = "home" | "watchlist" | "portfolio" | "analytics" | "transactions" | "settings" | "planning" | "research" | "picks";
 
 const TABS: { id: NavTab; label: string; icon: typeof Home }[] = [
   { id: "home", label: "Home", icon: Home },
   { id: "watchlist", label: "Watchlist", icon: ListChecks },
   { id: "portfolio", label: "Portfolio", icon: Briefcase },
   { id: "analytics", label: "Stats", icon: LineChart },
-  { id: "transactions", label: "Orders", icon: Receipt },
+  { id: "picks", label: "Picks", icon: Target },
   { id: "research", label: "Research", icon: Sparkles },
 ];
 
@@ -39,27 +39,9 @@ export function BottomNav({ value, onChange }: Props) {
                   active ? "text-primary" : "text-muted-foreground hover:text-foreground"
                 )}
               >
-                <Icon
-                  className={cn(
-                    "h-5 w-5 transition-transform",
-                    active && "scale-110"
-                  )}
-                  strokeWidth={active ? 2.4 : 1.8}
-                />
-                <span
-                  className={cn(
-                    "text-[10px] leading-none tracking-tight",
-                    active && "font-semibold"
-                  )}
-                >
-                  {t.label}
-                </span>
-                <span
-                  className={cn(
-                    "mt-0.5 h-0.5 w-6 rounded-full transition-all",
-                    active ? "bg-primary" : "bg-transparent"
-                  )}
-                />
+                <Icon className={cn("h-5 w-5 transition-transform", active && "scale-110")} strokeWidth={active ? 2.4 : 1.8} />
+                <span className={cn("text-[10px] leading-none tracking-tight", active && "font-semibold")}>{t.label}</span>
+                <span className={cn("mt-0.5 h-0.5 w-6 rounded-full transition-all", active ? "bg-primary" : "bg-transparent")} />
               </button>
             </li>
           );
