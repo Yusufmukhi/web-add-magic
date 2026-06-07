@@ -27,7 +27,6 @@ interface SimResults {
 const YEAR_OPTIONS = [1, 3, 5, 10] as const;
 const N_SIMS = 500;
 
-/** Pearson correlation between two return series */
 function pearson(a: number[], b: number[]): number {
   const n = Math.min(a.length, b.length);
   if (n < 5) return 0;
@@ -61,9 +60,9 @@ export function MonteCarloView({ portfolio, results }: Props) {
   const [running, setRunning] = useState(false);
 
   const tickers = useMemo(() => portfolio.map((h) => h.ticker), [portfolio]);
-  const { map: historyMap, isLoading: histLoading } = useHistories(tickers, "3mo");
+  // FIX: Use 1y history for stable correlation estimates (was "3mo" — too short)
+  const { map: historyMap, isLoading: histLoading } = useHistories(tickers, "1y");
 
-  // ── Build per-holding params ──────────────────────────────────────────────
   const portfolioParams = useMemo(() => {
     if (!portfolio.length) return null;
 
@@ -77,10 +76,9 @@ export function MonteCarloView({ portfolio, results }: Props) {
       const holdingValue = h.qty * currentPrice;
       const d = results.find((x) => x.ticker === h.ticker)?.data;
 
-      // Volatility: prefer history-derived, fall back to 52W range
       const history = historyMap[h.ticker] ?? [];
-      let dailyVol = 0.01;
-      if (history.length >= 10) {
+      let dailyVol = 0.015;
+      if (history.length >= 20) {
         const rets = toReturns(history.map((p) => p.close));
         if (rets.length > 0) {
           const mean = rets.reduce((s, v) => s + v, 0) / rets.length;
@@ -90,16 +88,17 @@ export function MonteCarloView({ portfolio, results }: Props) {
       } else {
         const high = d?.fiftyTwoWeekHigh ?? 0;
         const low = d?.fiftyTwoWeekLow ?? 0;
-        const rangeVol = high > 0 && low > 0 ? (high - low) / low / Math.sqrt(252) : 0.01;
-        const dayVol = Math.abs(d?.dayChangePct ?? 0) / 100;
-        dailyVol = Math.max(rangeVol, dayVol, 0.01);
+        const rangeVol = high > 0 && low > 0 ? (high - low) / ((high + low) / 2) / Math.sqrt(252) : 0.015;
+        dailyVol = Math.max(rangeVol, 0.01);
       }
 
-      let annualReturn = 0.08;
-      if (d?.revenueGrowth != null) {
-        annualReturn = Math.min(Math.max(d.revenueGrowth, -0.3), 0.5);
-      } else if (d?.returnOnEquity != null) {
-        annualReturn = Math.min(Math.max(d.returnOnEquity * 0.5, -0.3), 0.5);
+      // FIX: annualReturn priority — ROE×0.6 before revenueGrowth
+      // ROE × 0.6 is a much better proxy for expected stock return than revenue growth
+      let annualReturn = 0.10; // 10% default (roughly Indian equity long-run average)
+      if (d?.returnOnEquity != null && d.returnOnEquity > 0) {
+        annualReturn = Math.min(Math.max(d.returnOnEquity * 0.6, -0.3), 0.6);
+      } else if (d?.revenueGrowth != null) {
+        annualReturn = Math.min(Math.max(d.revenueGrowth * 0.4, -0.3), 0.5);
       }
 
       return { ticker: h.ticker, holdingValue, dailyVol, annualReturn };
@@ -110,18 +109,15 @@ export function MonteCarloView({ portfolio, results }: Props) {
 
     const weights = rows.map((r) => r.holdingValue / totalValue);
 
-    // Weighted portfolio mu
     const portfolioMu = rows.reduce(
       (s, r, i) => s + weights[i] * r.annualReturn,
       0
     );
 
-    // ── FIXED: Proper portfolio variance = Σᵢ Σⱼ wᵢ wⱼ σᵢ σⱼ ρᵢⱼ ──────────
-    // Build return series for correlation
     const returnSeries: Record<string, number[]> = {};
     for (const r of rows) {
       const hist = historyMap[r.ticker] ?? [];
-      if (hist.length >= 10) {
+      if (hist.length >= 20) {
         returnSeries[r.ticker] = toReturns(hist.map((p) => p.close));
       }
     }
@@ -237,7 +233,7 @@ export function MonteCarloView({ portfolio, results }: Props) {
             Runs 500 simulated futures using your portfolio's real volatility & correlations
           </p>
           <p className="text-xs text-muted-foreground/60 mt-1">
-            Select horizon above and click Run Simulation
+            Uses 1-year daily returns for accurate correlation estimates
           </p>
         </div>
       )}
@@ -313,7 +309,6 @@ export function MonteCarloView({ portfolio, results }: Props) {
             </CardHeader>
             <CardContent>
               <SimPathChart simResults={simResults} />
-              {/* FIXED: clarified median path label */}
               <p className="text-[10px] text-muted-foreground mt-2">
                 Green = profit scenarios · Red = loss scenarios · Bold line = closest-to-median path · Dashed = 10th/90th percentile
               </p>
@@ -343,7 +338,6 @@ function SimPathChart({ simResults }: { simResults: SimResults }) {
   const pathString = (pts: number[]) =>
     pts.map((v, i) => `${toX(i).toFixed(1)},${toY(v).toFixed(1)}`).join(" ");
 
-  // Closest-to-median path (labelled clearly in legend)
   const medianPath = paths.reduce((best, path) => {
     const finalV = path[path.length - 1];
     const bestFinalV = best[best.length - 1];
