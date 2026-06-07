@@ -27,7 +27,7 @@ const LS_KEY_HIST = "research_history";
 const MAX_HIST    = 8;
 
 // FIX: Updated model string — full preview name routes reliably
-const GEMINI_MODEL = "gemini-2.5-flash-preview-04-17";
+const GEMINI_MODEL = "gemini-2.5-flash";
 const GEMINI_URL = (key: string) =>
   `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${key}`;
 // FIX: Streaming endpoint
