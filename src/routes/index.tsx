@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { toast } from "sonner";
-import { Home as HomeIcon, Briefcase, LineChart, ListChecks, Receipt, CalendarRange, Settings as SettingsIcon, Sparkles } from "lucide-react";
+import { Home as HomeIcon, Briefcase, LineChart, ListChecks, Receipt, CalendarRange, Settings as SettingsIcon, Sparkles, Target } from "lucide-react";
 import { previewFifoSell } from "@/utils/fifo";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { BottomNav, type NavTab } from "@/components/layout/BottomNav";
@@ -24,18 +24,19 @@ import { PlanningPanel } from "@/components/planning/PlanningPanel";
 import { PriceAlertsButton } from "@/components/alerts/PriceAlertsButton";
 import { SettingsPanel, type BackupShape } from "@/components/settings/SettingsPanel";
 import { AIResearchPanel } from "@/components/research/AIResearchPanel";
+import { PicksPanel } from "@/components/picks/PicksPanel";
 import { useWatchlist } from "@/hooks/useWatchlist";
 import { useStockQuote, useStockQuotes } from "@/hooks/useStockQuote";
 import { usePortfolioState } from "@/hooks/usePortfolio";
 import { xirr } from "@/utils/finance";
 import type { Holding } from "@/types/portfolio.types";
 
-export const Route = createFileRoute("/")({
+export const Route = createFileRoute("/")(({
   validateSearch: (search: Record<string, unknown>) => ({
     tab: (search.tab as string) ?? "watchlist",
   }),
   component: DashboardPage,
-});
+}));
 
 function DashboardPage() {
   const { tab } = Route.useSearch();
@@ -54,12 +55,12 @@ function DashboardPage() {
   const [sellPrefill, setSellPrefill] = useState<string | null>(null);
   const [portfolioPrices, setPortfolioPrices] = useState<Record<string, number>>({});
   const [activeTab, setActiveTab] = useState<NavTab>(tab as NavTab ?? "watchlist");
+  // For pre-filling Research from Picks
+  const [researchPrefill, setResearchPrefill] = useState<string>("");
 
-  // Edit / delete state
   const [editing, setEditing] = useState<Holding | null>(null);
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
 
-  // Quotes used by alerts checker (portfolio + watchlist)
   const portfolioTickers = useMemo(() => portfolio.map((h) => h.ticker), [portfolio]);
   const portfolioQuotes = useStockQuotes(portfolioTickers);
   const alertsQuotes = useMemo(() => [...results, ...portfolioQuotes], [results, portfolioQuotes]);
@@ -89,7 +90,6 @@ function DashboardPage() {
 
   const handleSell = useCallback(
     (ticker: string, price: number, qty: number, date: string, charges: number) => {
-      // Capture FIFO preview profit BEFORE sell mutates lots
       const holding = portfolio.find((h) => h.ticker === ticker);
       const preview = holding?.lots?.length
         ? previewFifoSell(holding.lots, qty, price, date, charges)
@@ -163,6 +163,12 @@ function DashboardPage() {
     [replaceState, replaceWatchlist]
   );
 
+  // Navigate from Picks → Research with prefilled ticker
+  const handleNavigateToResearch = useCallback((ticker: string) => {
+    setResearchPrefill(ticker);
+    setActiveTab("research");
+  }, []);
+
   const { current, realized, cagr } = useMemo(() => {
     let inv = 0, cur = 0;
     portfolio.forEach((h) => {
@@ -174,9 +180,6 @@ function DashboardPage() {
       (a, t) => (t.action === "SELL" && t.meta?.profit != null ? a + t.meta.profit : a),
       0
     );
-    // Money-weighted CAGR (XIRR) — works even when all stocks are sold.
-    // BUYs = outflow (negative), SELLs (net of charges) = inflow (positive),
-    // current MV of open holdings = terminal inflow today.
     const flows: number[] = [];
     const dates: string[] = [];
     const sortedTx = [...transactions]
@@ -199,6 +202,8 @@ function DashboardPage() {
   }, [portfolio, portfolioPrices, transactions]);
 
   const portfolioValue = current + cashBalance;
+
+  const TAB_TRIGGER_CLASS = "gap-1.5 minimal:rounded-none minimal:border-b-2 minimal:border-transparent minimal:bg-transparent minimal:data-[state=active]:border-primary minimal:data-[state=active]:bg-transparent minimal:data-[state=active]:shadow-none";
 
   return (
     <div className="min-h-screen pb-20 md:pb-0">
@@ -225,30 +230,15 @@ function DashboardPage() {
         <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as NavTab)} className="space-y-5">
           <div className="sticky top-0 z-10 -mx-3 hidden overflow-x-auto bg-background/95 px-3 py-1 backdrop-blur md:block sm:-mx-6 sm:px-6">
             <TabsList className="inline-flex h-auto w-max bg-card creative:shadow-soft minimal:rounded-none minimal:border-b minimal:border-border minimal:bg-transparent minimal:p-0">
-              <TabsTrigger value="home" className="gap-1.5 minimal:rounded-none minimal:border-b-2 minimal:border-transparent minimal:bg-transparent minimal:data-[state=active]:border-primary minimal:data-[state=active]:bg-transparent minimal:data-[state=active]:shadow-none">
-                <HomeIcon className="h-3.5 w-3.5" /> Home
-              </TabsTrigger>
-              <TabsTrigger value="portfolio" className="gap-1.5 minimal:rounded-none minimal:border-b-2 minimal:border-transparent minimal:bg-transparent minimal:data-[state=active]:border-primary minimal:data-[state=active]:bg-transparent minimal:data-[state=active]:shadow-none">
-                <Briefcase className="h-3.5 w-3.5" /> Portfolio
-              </TabsTrigger>
-              <TabsTrigger value="watchlist" className="gap-1.5 minimal:rounded-none minimal:border-b-2 minimal:border-transparent minimal:bg-transparent minimal:data-[state=active]:border-primary minimal:data-[state=active]:bg-transparent minimal:data-[state=active]:shadow-none">
-                <ListChecks className="h-3.5 w-3.5" /> Watchlist
-              </TabsTrigger>
-              <TabsTrigger value="analytics" className="gap-1.5 minimal:rounded-none minimal:border-b-2 minimal:border-transparent minimal:bg-transparent minimal:data-[state=active]:border-primary minimal:data-[state=active]:bg-transparent minimal:data-[state=active]:shadow-none">
-                <LineChart className="h-3.5 w-3.5" /> Analytics
-              </TabsTrigger>
-              <TabsTrigger value="transactions" className="gap-1.5 minimal:rounded-none minimal:border-b-2 minimal:border-transparent minimal:bg-transparent minimal:data-[state=active]:border-primary minimal:data-[state=active]:bg-transparent minimal:data-[state=active]:shadow-none">
-                <Receipt className="h-3.5 w-3.5" /> Transactions
-              </TabsTrigger>
-              <TabsTrigger value="planning" className="gap-1.5 minimal:rounded-none minimal:border-b-2 minimal:border-transparent minimal:bg-transparent minimal:data-[state=active]:border-primary minimal:data-[state=active]:bg-transparent minimal:data-[state=active]:shadow-none">
-                <CalendarRange className="h-3.5 w-3.5" /> Planning
-              </TabsTrigger>
-              <TabsTrigger value="settings" className="gap-1.5 minimal:rounded-none minimal:border-b-2 minimal:border-transparent minimal:bg-transparent minimal:data-[state=active]:border-primary minimal:data-[state=active]:bg-transparent minimal:data-[state=active]:shadow-none">
-                <SettingsIcon className="h-3.5 w-3.5" /> Settings
-              </TabsTrigger>
-              <TabsTrigger value="research" className="gap-1.5 minimal:rounded-none minimal:border-b-2 minimal:border-transparent minimal:bg-transparent minimal:data-[state=active]:border-primary minimal:data-[state=active]:bg-transparent minimal:data-[state=active]:shadow-none">
-                <Sparkles className="h-3.5 w-3.5" /> Research
-              </TabsTrigger>
+              <TabsTrigger value="home" className={TAB_TRIGGER_CLASS}><HomeIcon className="h-3.5 w-3.5" /> Home</TabsTrigger>
+              <TabsTrigger value="portfolio" className={TAB_TRIGGER_CLASS}><Briefcase className="h-3.5 w-3.5" /> Portfolio</TabsTrigger>
+              <TabsTrigger value="watchlist" className={TAB_TRIGGER_CLASS}><ListChecks className="h-3.5 w-3.5" /> Watchlist</TabsTrigger>
+              <TabsTrigger value="analytics" className={TAB_TRIGGER_CLASS}><LineChart className="h-3.5 w-3.5" /> Analytics</TabsTrigger>
+              <TabsTrigger value="transactions" className={TAB_TRIGGER_CLASS}><Receipt className="h-3.5 w-3.5" /> Transactions</TabsTrigger>
+              <TabsTrigger value="planning" className={TAB_TRIGGER_CLASS}><CalendarRange className="h-3.5 w-3.5" /> Planning</TabsTrigger>
+              <TabsTrigger value="picks" className={TAB_TRIGGER_CLASS}><Target className="h-3.5 w-3.5" /> Picks</TabsTrigger>
+              <TabsTrigger value="research" className={TAB_TRIGGER_CLASS}><Sparkles className="h-3.5 w-3.5" /> Research</TabsTrigger>
+              <TabsTrigger value="settings" className={TAB_TRIGGER_CLASS}><SettingsIcon className="h-3.5 w-3.5" /> Settings</TabsTrigger>
             </TabsList>
           </div>
 
@@ -265,7 +255,6 @@ function DashboardPage() {
               onAddFunds={() => setModal("add")}
             />
           </TabsContent>
-
 
           <TabsContent value="portfolio">
             <PortfolioPanel
@@ -317,6 +306,14 @@ function DashboardPage() {
             />
           </TabsContent>
 
+          <TabsContent value="picks">
+            <PicksPanel onNavigateToResearch={handleNavigateToResearch} />
+          </TabsContent>
+
+          <TabsContent value="research">
+            <AIResearchPanel prefillTicker={researchPrefill} onPrefillConsumed={() => setResearchPrefill("")} />
+          </TabsContent>
+
           <TabsContent value="settings">
             <SettingsPanel
               portfolio={portfolio}
@@ -330,56 +327,15 @@ function DashboardPage() {
               onWithdraw={(amt) => { withdrawFunds(amt); }}
             />
           </TabsContent>
-
-          <TabsContent value="research">
-            <AIResearchPanel />
-          </TabsContent>
         </Tabs>
       </main>
 
-      <AddFundsModal
-        open={modal === "add"}
-        onClose={() => setModal(null)}
-        cashBalance={cashBalance}
-        onConfirm={(amt, note) => { addFunds(amt, note); toast.success(`Added ₹${amt.toFixed(2)}`); }}
-      />
-      <WithdrawModal
-        open={modal === "withdraw"}
-        onClose={() => setModal(null)}
-        cashBalance={cashBalance}
-        onConfirm={(amt, note) => { const ok = withdrawFunds(amt, note); if (ok) toast.success(`Withdrew ₹${amt.toFixed(2)}`); return ok; }}
-      />
-      <BuyStockModal
-        open={modal === "buy"}
-        onClose={() => setModal(null)}
-        cashBalance={cashBalance}
-        onConfirm={handleBuy}
-      />
-      <SellStockModal
-        open={modal === "sell"}
-        onClose={() => { setModal(null); setSellPrefill(null); }}
-        portfolio={portfolio}
-        prices={portfolioPrices}
-        prefillTicker={sellPrefill}
-        onConfirm={handleSell}
-      />
-
-      <EditHoldingModal
-        open={editing !== null}
-        onClose={() => setEditing(null)}
-        holding={editing}
-        onConfirm={handleEditConfirm}
-      />
-
-      <ConfirmDialog
-        open={pendingDelete !== null}
-        onClose={() => setPendingDelete(null)}
-        onConfirm={handleDeleteConfirmed}
-        title={`Delete ${pendingDelete ?? ""}?`}
-        description="This removes the holding row from your portfolio. Past transactions are kept, and your cash balance is NOT refunded."
-        confirmWord={pendingDelete ?? ""}
-        confirmLabel="Delete holding"
-      />
+      <AddFundsModal open={modal === "add"} onClose={() => setModal(null)} cashBalance={cashBalance} onConfirm={(amt, note) => { addFunds(amt, note); toast.success(`Added ₹${amt.toFixed(2)}`); }} />
+      <WithdrawModal open={modal === "withdraw"} onClose={() => setModal(null)} cashBalance={cashBalance} onConfirm={(amt, note) => { const ok = withdrawFunds(amt, note); if (ok) toast.success(`Withdrew ₹${amt.toFixed(2)}`); return ok; }} />
+      <BuyStockModal open={modal === "buy"} onClose={() => setModal(null)} cashBalance={cashBalance} onConfirm={handleBuy} />
+      <SellStockModal open={modal === "sell"} onClose={() => { setModal(null); setSellPrefill(null); }} portfolio={portfolio} prices={portfolioPrices} prefillTicker={sellPrefill} onConfirm={handleSell} />
+      <EditHoldingModal open={editing !== null} onClose={() => setEditing(null)} holding={editing} onConfirm={handleEditConfirm} />
+      <ConfirmDialog open={pendingDelete !== null} onClose={() => setPendingDelete(null)} onConfirm={handleDeleteConfirmed} title={`Delete ${pendingDelete ?? ""}?`} description="This removes the holding row from your portfolio. Past transactions are kept, and your cash balance is NOT refunded." confirmWord={pendingDelete ?? ""} confirmLabel="Delete holding" />
 
       <BottomNav value={activeTab} onChange={setActiveTab} />
     </div>
