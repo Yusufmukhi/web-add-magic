@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import {
   Sparkles, Search, Copy, AlertTriangle, BarChart2,
-  Key, X, ChevronRight, TrendingUp,
+  Key, X, ChevronRight, TrendingUp, Users, BookOpen,
+  MessageSquare, Building2, Newspaper, Send,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Card } from "@/components/ui/card";
@@ -20,19 +21,123 @@ interface ResearchEntry {
 
 type GeminiPart = { text?: string; thought?: boolean };
 
+type FollowUpType =
+  | "redflags"
+  | "peers"
+  | "promoter"
+  | "agm"
+  | "shareholding"
+  | "news"
+  | "custom";
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const LS_KEY_API  = "gemini_api_key";
 const LS_KEY_HIST = "research_history";
 const MAX_HIST    = 8;
-
-// FIX: Updated model string — full preview name routes reliably
 const GEMINI_MODEL = "gemini-2.5-flash";
 const GEMINI_URL = (key: string) =>
   `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${key}`;
-// FIX: Streaming endpoint
 const GEMINI_STREAM_URL = (key: string) =>
   `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:streamGenerateContent?alt=sse&key=${key}`;
+
+// ─── Dig Deeper button config ────────────────────────────────────────────────
+
+const DIG_DEEPER_BUTTONS: {
+  type: FollowUpType;
+  label: string;
+  loadingLabel: string;
+  icon: React.ElementType;
+  iconClass: string;
+  prompt: (stock: string) => string;
+}[] = [
+  {
+    type: "redflags",
+    label: "Red Flags",
+    loadingLabel: "Analysing...",
+    icon: AlertTriangle,
+    iconClass: "text-destructive",
+    prompt: (s) =>
+      `For the NSE/BSE listed stock ${s}, give me the top 6 specific red flags an investor MUST monitor right now. Use the latest available data including recent filings, news, and results. Format as a numbered list — bold heading for each red flag, then 2-3 sentences of specific explanation with data points. Be brutally direct. No generic warnings.`,
+  },
+  {
+    type: "peers",
+    label: "Peer Compare",
+    loadingLabel: "Comparing...",
+    icon: BarChart2,
+    iconClass: "text-primary",
+    prompt: (s) =>
+      `Compare the NSE/BSE listed stock ${s} with its 3 closest listed Indian peers. Present a markdown table with these columns: Company | CMP (₹) | Mkt Cap (₹Cr) | Revenue Growth YoY% | EBITDA Margin% | PAT Margin% | ROCE% | PE (TTM) | Debt/Equity. After the table, write a 3-sentence verdict — is ${s} a better or worse bet vs peers right now, and why?`,
+  },
+  {
+    type: "promoter",
+    label: "Promoter Profile",
+    loadingLabel: "Loading...",
+    icon: Users,
+    iconClass: "text-amber-500",
+    prompt: (s) =>
+      `Give me a detailed promoter analysis for the NSE/BSE listed company ${s}. Cover:
+1. **Promoter Background** — Who are the promoters? Their professional background, other businesses, track record. Are they first-generation entrepreneurs or inheritors?
+2. **Promoter Holding & Trend** — Current promoter holding %. Has it increased or decreased in the last 4 quarters? Any pledging?
+3. **Management Quality Signals** — Has management delivered on past guidance? Any history of corporate governance issues, SEBI orders, or fraud allegations?
+4. **Promoter Communication** — How do they talk to investors? Do they give clear guidance? Are they accessible?
+5. **Key Management Team** — Who is the CEO/MD, CFO? Their tenure, background, and credibility.
+6. **Red Flags or Green Flags** — Give a final 2-sentence assessment: is this management trustworthy and capable?
+Use the latest available public information.`,
+  },
+  {
+    type: "agm",
+    label: "AGM / Concall",
+    loadingLabel: "Loading...",
+    icon: BookOpen,
+    iconClass: "text-purple-500",
+    prompt: (s) =>
+      `Find the most recent AGM (Annual General Meeting) and/or earnings concall transcript details for the NSE/BSE listed company ${s}. Summarize:
+1. **Key Management Commentary** — What did the MD/CEO say about business outlook, growth plans, and challenges? Quote specific statements if available.
+2. **FY Guidance** — What revenue, margin, and growth guidance did management give for the current or next fiscal year?
+3. **Order Book / Pipeline** — Any specific order wins, pipeline size, or capacity expansion mentioned?
+4. **Capex Plans** — How much capex is planned and for what purpose?
+5. **Analyst Questions** — What were the sharpest analyst questions, and how did management respond?
+6. **Management Tone** — Were they confident, defensive, or evasive? What topics did they avoid?
+7. **What to Watch** — Based on their commentary, what 2-3 milestones should investors track in the next 2 quarters?
+Use the latest concall (Q3/Q4 FY25 or most recent available).`,
+  },
+  {
+    type: "shareholding",
+    label: "Shareholding",
+    loadingLabel: "Loading...",
+    icon: Building2,
+    iconClass: "text-blue-500",
+    prompt: (s) =>
+      `Give me a detailed shareholding pattern analysis for the NSE/BSE listed stock ${s}. Cover:
+1. **Current Shareholding Pattern** — Present a table: Promoters% | FII/FPI% | DII (MF+Insurance)% | Retail (Public)% | Others% with latest quarter data.
+2. **QoQ Trend** — How has each category changed over the last 4 quarters? Show as a mini table.
+3. **Key FII Investors** — Which specific foreign funds hold this stock? Have they been buying or selling?
+4. **Key DII/MF Investors** — Which mutual fund houses hold significant stakes? Any SIP inflows visible?
+5. **Ace Investors** — Do any well-known individual investors (Ashish Kacholia, Vijay Kedia, Dolly Khanna, etc.) hold this stock?
+6. **Institutional Activity Signal** — Based on the trend, are institutions accumulating or distributing? What does this signal?
+Use the latest available quarterly disclosure data.`,
+  },
+  {
+    type: "news",
+    label: "Recent News",
+    loadingLabel: "Loading...",
+    icon: Newspaper,
+    iconClass: "text-green-500",
+    prompt: (s) =>
+      `Search for the most recent news and developments for the NSE/BSE listed company ${s} in the last 30-60 days. Summarize:
+1. **Business News** — Any new contracts, order wins, partnerships, product launches, or expansion announcements?
+2. **Results & Earnings** — Latest quarterly results summary and market reaction.
+3. **Regulatory / Legal** — Any SEBI notices, court cases, government actions, or compliance issues?
+4. **Management Changes** — Any key hirings, resignations, or board changes?
+5. **Sector News** — Any sector-wide developments (policy, demand, competition) affecting this company?
+6. **Stock Price Triggers** — What news caused significant price movements recently?
+7. **Upcoming Catalysts** — Any known upcoming events — results date, AGM, order announcements, capex commissioning?
+Present as a clean structured summary. Be specific with dates and numbers.`,
+  },
+];
+
+// ─── System prompt ─────────────────────────────────────────────────────────
 
 const SYSTEM_PROMPT = `You are Aurum, an elite institutional equity research analyst specializing exclusively in Indian stock markets — NSE and BSE listed companies. You have deep expertise in Indian accounting standards (Ind AS), SEBI regulations, sectoral dynamics of the Indian economy, and the behavioral patterns of Indian retail vs institutional investors.
 
@@ -43,9 +148,17 @@ When asked to analyse a stock, always follow this exact structure:
 ## 🏢 Business Overview
 - What the company actually does (not copy-paste from annual report — explain it simply)
 - Key products / services / revenue segments with approximate % contribution
-- Promoter background and credibility (any red flags or track record?)
+- Promoter background and credibility (any red flags or strong track record?)
 - Market position — leader, challenger, niche player?
 - Listed on NSE/BSE? BSE SME? Year of listing?
+
+## 👤 Promoter & Management Quality
+- Who are the promoters? First-gen entrepreneur or inheritor? Other businesses?
+- Current promoter holding % — increasing or decreasing over last 4 quarters?
+- Any pledging? If yes, what %?
+- Management track record on delivering guidance — honest or over-promising?
+- Any SEBI orders, corporate governance issues, or red flags?
+- Management tone in recent concalls — confident, defensive, or evasive?
 
 ## 📊 Financial Snapshot (Last 4 Quarters / Latest Annual)
 - Revenue (₹ Cr) — absolute number + YoY growth %
@@ -55,6 +168,19 @@ When asked to analyse a stock, always follow this exact structure:
 - ROCE and ROE — are they above cost of capital?
 - Cash flow from operations — is profit backed by real cash?
 - Any one-time items distorting numbers?
+
+## 🏛️ Shareholding & Institutional Activity
+- Current FII%, DII%, Promoter%, Retail% (latest quarter)
+- QoQ change in FII and DII holdings — accumulating or distributing?
+- Any notable ace investors (Kacholia, Kedia, Khanna etc.) holding this?
+- Mutual fund SIP inflow visible in the stock?
+
+## 📣 Latest AGM / Concall Highlights
+- Key management guidance from most recent concall or AGM
+- Order book size or pipeline if disclosed
+- Capex plans and expected commissioning timelines
+- Any forward guidance on revenue or margins
+- Key risks flagged by management themselves
 
 ## ⚠️ Key Risks (minimum 4, be specific — no generic "market risk")
 - Sector-specific risks
@@ -91,11 +217,12 @@ When asked to analyse a stock, always follow this exact structure:
 Give 2-3 sentences explaining your verdict — why you have this conviction, what is the key trigger to watch.
 
 IMPORTANT RULES:
-- Use Google Search to fetch the LATEST available data — current price, latest quarterly results, recent news
+- Use Google Search to fetch the LATEST available data — current price, latest quarterly results, recent news, latest concall, latest AGM
 - All financial figures must be in Indian format (₹ Crores)
 - If this is an SME IPO or recently listed stock, mention it clearly and add extra caution
-- If promoter holding has decreased recently, flag it as a red flag
+- If promoter holding has decreased recently, flag it prominently as a red flag
 - If FII/DII holding has increased recently, flag it as a positive signal
+- If promoter pledge is above 20%, flag it as a serious risk
 - Never give vague answers like "the stock may go up or down" — give a real directional view
 - If you genuinely don't have enough data (very obscure stock), say so clearly rather than making up numbers`;
 
@@ -187,7 +314,7 @@ function ReportRenderer({ text }: { text: string }) {
           </tr>
         );
       } else if (/^[\|\-\s]+$/.test(line)) {
-        // separator row — skip
+        // skip separator
       } else {
         rawElements.push(
           <tr key={key++} data-table-row="body" className="even:bg-muted/20 hover:bg-muted/30 transition-colors">
@@ -218,9 +345,10 @@ function ReportRenderer({ text }: { text: string }) {
         </div>
       );
     } else if (line.startsWith("**") && line.endsWith("**") && line.length > 4) {
-      const content = line.slice(2, -2);
       rawElements.push(
-        <p key={key++} className="text-sm font-semibold text-foreground my-0.5">{content}</p>
+        <p key={key++} className="text-sm font-semibold text-foreground my-0.5">
+          {line.slice(2, -2)}
+        </p>
       );
     } else if (line.trim() === "") {
       rawElements.push(<div key={key++} className="h-1" />);
@@ -235,7 +363,7 @@ function ReportRenderer({ text }: { text: string }) {
     }
   }
 
-  // Wrap consecutive <tr> elements in a <table>
+  // wrap <tr> runs in <table>
   const finalElements: React.ReactNode[] = [];
   let tableRows: React.ReactNode[] = [];
 
@@ -271,7 +399,7 @@ function formatInline(text: string): string {
     .replace(/`(.+?)`/g, "<code class='bg-muted px-1 rounded text-xs'>$1</code>");
 }
 
-// ─── FIX: Streaming API call ──────────────────────────────────────────────────
+// ─── Streaming API call ───────────────────────────────────────────────────────
 
 async function callGeminiStream(
   apiKey: string,
@@ -336,18 +464,13 @@ async function callGeminiStream(
   return fullText;
 }
 
-// ─── Non-streaming follow-up ──────────────────────────────────────────────────
+// ─── Non-streaming follow-up (preset + custom) ───────────────────────────────
 
 async function callGeminiFollowUp(
   apiKey: string,
   stock: string,
-  type: "redflags" | "peers"
+  prompt: string
 ): Promise<string> {
-  const prompt =
-    type === "redflags"
-      ? `For the NSE-listed stock ${stock}, give me the top 5 specific red flags an investor must monitor right now. Use the latest available data. Format as a numbered list with a bold heading for each red flag and 1-2 sentences of explanation. Be direct and specific — no generic warnings.`
-      : `Compare the NSE-listed stock ${stock} with its 3 closest listed peers on these metrics: Revenue Growth (YoY%), EBITDA Margin, Net Profit Margin, ROCE, PE Ratio, Debt/Equity. Present as a markdown table. Then give a 2-sentence summary of how ${stock} stands vs peers — is it a better or worse bet right now?`;
-
   const res = await fetch(GEMINI_URL(apiKey), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -374,7 +497,7 @@ async function callGeminiFollowUp(
   return text;
 }
 
-// ─── Skeleton loader ──────────────────────────────────────────────────────────
+// ─── Skeleton ─────────────────────────────────────────────────────────────────
 
 function ReportSkeleton() {
   return (
@@ -393,7 +516,7 @@ function ReportSkeleton() {
   );
 }
 
-// ─── API Key Setup screen ─────────────────────────────────────────────────────
+// ─── API Key Setup ────────────────────────────────────────────────────────────
 
 function ApiKeySetup({ onSave }: { onSave: (key: string) => void }) {
   const [val, setVal] = useState("");
@@ -414,13 +537,8 @@ function ApiKeySetup({ onSave }: { onSave: (key: string) => void }) {
       </div>
       <p className="text-sm text-muted-foreground">
         AI Research uses <span className="font-medium text-foreground">Gemini 2.5 Flash</span> with live
-        Google Search — free tier gives 1,500 requests/day, no credit card needed. Get your key from{" "}
-        <a
-          href="https://aistudio.google.com/app/apikey"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-primary underline underline-offset-2"
-        >
+        Google Search — free tier gives 1,500 requests/day. Get your key from{" "}
+        <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-primary underline underline-offset-2">
           aistudio.google.com
         </a>
       </p>
@@ -435,11 +553,6 @@ function ApiKeySetup({ onSave }: { onSave: (key: string) => void }) {
         />
         <Button onClick={handleSave} className="shrink-0">Save Key</Button>
       </div>
-      <p className="text-[11px] text-muted-foreground">
-        Your key is stored locally in your browser only — never sent anywhere except Google's API.{" "}
-        <span className="text-amber-500/80">Note: on the free tier, Google may use prompts for model
-        improvement. Upgrade to a paid tier or Vertex AI for full data privacy.</span>
-      </p>
     </Card>
   );
 }
@@ -452,26 +565,29 @@ interface AIResearchPanelProps {
 }
 
 export function AIResearchPanel({ prefillTicker, onPrefillConsumed }: AIResearchPanelProps = {}) {
-  const [apiKey, setApiKey]           = useState<string>(() => localStorage.getItem(LS_KEY_API) ?? "");
-  const [query, setQuery]             = useState("");
-  const [report, setReport]           = useState<string | null>(null);
+  const [apiKey, setApiKey]     = useState<string>(() => localStorage.getItem(LS_KEY_API) ?? "");
+  const [query, setQuery]       = useState("");
+  const [report, setReport]     = useState<string | null>(null);
   const [currentStock, setCurrentStock] = useState("");
-  const [loading, setLoading]         = useState(false);
+  const [loading, setLoading]   = useState(false);
   const [streamingText, setStreamingText] = useState<string>("");
-  const [followUpText, setFollowUpText] = useState<string | null>(null);
-  const [followUpType, setFollowUpType] = useState<"redflags" | "peers" | null>(null);
+
+  // Follow-up state
+  const [followUpText, setFollowUpText]     = useState<string | null>(null);
+  const [followUpType, setFollowUpType]     = useState<FollowUpType | null>(null);
+  const [followUpLabel, setFollowUpLabel]   = useState<string>("");
   const [followUpLoading, setFollowUpLoading] = useState(false);
-  const [history, setHistory]         = useState<ResearchEntry[]>(loadHistory);
+  const [customQuery, setCustomQuery]       = useState("");
+
+  const [history, setHistory] = useState<ResearchEntry[]>(loadHistory);
   const reportRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { saveHistory(history); }, [history]);
 
-  // Handle prefill from Picks panel
   useEffect(() => {
     if (prefillTicker && prefillTicker.trim()) {
       setQuery(prefillTicker.trim());
       onPrefillConsumed?.();
-      // Auto-trigger analysis if key is available
       if (apiKey) {
         setTimeout(() => handleAnalyse(prefillTicker.trim()), 100);
       }
@@ -479,7 +595,6 @@ export function AIResearchPanel({ prefillTicker, onPrefillConsumed }: AIResearch
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prefillTicker]);
 
-  // FIX: Use streaming for main analysis
   const handleAnalyse = useCallback(async (stockQuery?: string) => {
     const q = (stockQuery ?? query).trim();
     if (!q) { toast.error("Enter a stock name or ticker"); return; }
@@ -490,14 +605,13 @@ export function AIResearchPanel({ prefillTicker, onPrefillConsumed }: AIResearch
     setStreamingText("");
     setFollowUpText(null);
     setFollowUpType(null);
+    setFollowUpLabel("");
     setCurrentStock(q.toUpperCase());
 
     setTimeout(() => reportRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
 
     try {
-      const result = await callGeminiStream(apiKey, q, (partial) => {
-        setStreamingText(partial);
-      });
+      const result = await callGeminiStream(apiKey, q, (partial) => setStreamingText(partial));
       setStreamingText("");
       setReport(result);
       setHistory((prev) => {
@@ -511,25 +625,33 @@ export function AIResearchPanel({ prefillTicker, onPrefillConsumed }: AIResearch
     }
   }, [apiKey, query]);
 
-  const handleFollowUp = async (type: "redflags" | "peers") => {
+  const handleFollowUp = useCallback(async (type: FollowUpType, prompt: string, label: string) => {
     if (!currentStock || !apiKey) return;
     setFollowUpLoading(true);
     setFollowUpType(type);
+    setFollowUpLabel(label);
     setFollowUpText(null);
     try {
-      const result = await callGeminiFollowUp(apiKey, currentStock, type);
+      const result = await callGeminiFollowUp(apiKey, currentStock, prompt);
       setFollowUpText(result);
     } catch (err) {
       toast.error(parseGeminiError(err));
     } finally {
       setFollowUpLoading(false);
     }
+  }, [apiKey, currentStock]);
+
+  const handleCustomQuery = () => {
+    if (!customQuery.trim()) { toast.error("Type your question first"); return; }
+    const prompt = `For the NSE/BSE listed company ${currentStock}: ${customQuery.trim()}\n\nUse live web search to get the latest available data. Be specific and factual. Use Indian number formatting (₹ Crores). Structure your answer clearly with headings where appropriate.`;
+    handleFollowUp("custom", prompt, customQuery.trim());
+    setCustomQuery("");
   };
 
   const handleCopy = () => {
     if (!report) return;
-    const full = `AURUM RESEARCH — ${currentStock}\n${"─".repeat(50)}\n\n${report}`;
-    navigator.clipboard.writeText(full).then(() => toast.success("Report copied!"));
+    navigator.clipboard.writeText(`AURUM RESEARCH — ${currentStock}\n${"─".repeat(50)}\n\n${report}`)
+      .then(() => toast.success("Report copied!"));
   };
 
   const handleClearKey = () => {
@@ -545,10 +667,10 @@ export function AIResearchPanel({ prefillTicker, onPrefillConsumed }: AIResearch
     setStreamingText("");
     setFollowUpText(null);
     setFollowUpType(null);
+    setFollowUpLabel("");
     setTimeout(() => reportRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
   };
 
-  // Determine what to show in the report card
   const displayText = loading ? streamingText : report;
   const isStreaming = loading && streamingText.length > 0;
 
@@ -572,18 +694,14 @@ export function AIResearchPanel({ prefillTicker, onPrefillConsumed }: AIResearch
         <div className="flex items-center gap-2">
           <Sparkles className="h-5 w-5 text-primary" />
           <h2 className="font-display text-xl font-bold">AI Research</h2>
-          <Badge variant="outline" className="text-[10px]">Gemini 2.5 Flash · Live Search · Streaming</Badge>
+          <Badge variant="outline" className="text-[10px]">Gemini 2.5 Flash · Live · Streaming</Badge>
         </div>
-        <button
-          onClick={handleClearKey}
-          className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
-          title="Change API key"
-        >
+        <button onClick={handleClearKey} className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors">
           <Key className="h-3 w-3" /> Change Key
         </button>
       </div>
 
-      {/* Search bar */}
+      {/* Search */}
       <Card className="p-4 space-y-3">
         <div className="flex gap-2">
           <div className="relative flex-1">
@@ -597,11 +715,7 @@ export function AIResearchPanel({ prefillTicker, onPrefillConsumed }: AIResearch
               disabled={loading}
             />
           </div>
-          <Button
-            onClick={() => handleAnalyse()}
-            disabled={loading || !query.trim()}
-            className="gap-1.5 shrink-0"
-          >
+          <Button onClick={() => handleAnalyse()} disabled={loading || !query.trim()} className="gap-1.5 shrink-0">
             <Sparkles className="h-3.5 w-3.5" />
             {loading ? "Analysing..." : "Analyse"}
           </Button>
@@ -616,9 +730,7 @@ export function AIResearchPanel({ prefillTicker, onPrefillConsumed }: AIResearch
                 onClick={() => handleLoadHistory(h)}
                 className={cn(
                   "inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition-colors hover:bg-accent",
-                  currentStock === h.query
-                    ? "border-primary text-primary bg-accent"
-                    : "border-border text-muted-foreground"
+                  currentStock === h.query ? "border-primary text-primary bg-accent" : "border-border text-muted-foreground"
                 )}
               >
                 {h.query}
@@ -629,22 +741,20 @@ export function AIResearchPanel({ prefillTicker, onPrefillConsumed }: AIResearch
         )}
       </Card>
 
-      {/* Loading skeleton — only shows before first stream chunk */}
+      {/* Loading skeleton */}
       {loading && !isStreaming && (
         <Card className="p-5">
           <div className="flex items-center gap-2 mb-4">
             <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
             <span className="text-sm text-muted-foreground">
-              Aurum is researching{" "}
-              <span className="font-semibold text-foreground">{currentStock}</span>{" "}
-              with live data...
+              Aurum is researching <span className="font-semibold text-foreground">{currentStock}</span> with live data...
             </span>
           </div>
           <ReportSkeleton />
         </Card>
       )}
 
-      {/* Streaming / final report card */}
+      {/* Report card */}
       {displayText && (
         <Card className="p-5" ref={reportRef}>
           <div className="flex items-center justify-between mb-1">
@@ -663,12 +773,7 @@ export function AIResearchPanel({ prefillTicker, onPrefillConsumed }: AIResearch
                 <Button variant="ghost" size="sm" onClick={handleCopy} className="h-7 gap-1 text-xs">
                   <Copy className="h-3 w-3" /> Copy
                 </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => { setReport(null); setStreamingText(""); setFollowUpText(null); setCurrentStock(""); }}
-                  className="h-7 w-7 p-0"
-                >
+                <Button variant="ghost" size="sm" onClick={() => { setReport(null); setStreamingText(""); setFollowUpText(null); setCurrentStock(""); }} className="h-7 w-7 p-0">
                   <X className="h-3.5 w-3.5" />
                 </Button>
               </div>
@@ -677,33 +782,79 @@ export function AIResearchPanel({ prefillTicker, onPrefillConsumed }: AIResearch
 
           <ReportRenderer text={displayText} />
 
-          {/* Follow-up actions — only show when report is complete */}
+          {/* ── Dig Deeper section ── */}
           {!loading && (
-            <div className="mt-5 pt-4 border-t border-border">
-              <p className="text-[11px] text-muted-foreground mb-2 font-medium uppercase tracking-wide">
-                Dig deeper
+            <div className="mt-5 pt-4 border-t border-border space-y-3">
+              <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wide">
+                Dig Deeper
               </p>
+
+              {/* Preset buttons */}
               <div className="flex flex-wrap gap-2">
+                {DIG_DEEPER_BUTTONS.map((btn) => {
+                  const Icon = btn.icon;
+                  const isActive = followUpType === btn.type;
+                  const isThisLoading = followUpLoading && followUpType === btn.type;
+                  return (
+                    <Button
+                      key={btn.type}
+                      variant={isActive ? "default" : "outline"}
+                      size="sm"
+                      className="gap-1.5 text-xs h-8"
+                      onClick={() => handleFollowUp(btn.type, btn.prompt(currentStock), btn.label)}
+                      disabled={followUpLoading}
+                    >
+                      <Icon className={cn("h-3.5 w-3.5", !isActive && btn.iconClass)} />
+                      {isThisLoading ? btn.loadingLabel : btn.label}
+                    </Button>
+                  );
+                })}
+              </div>
+
+              {/* Custom question input */}
+              <div className="flex gap-2 pt-1">
+                <div className="relative flex-1">
+                  <MessageSquare className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+                  <Input
+                    className="pl-9 text-xs h-8"
+                    placeholder={`Ask anything about ${currentStock || "this stock"}...`}
+                    value={customQuery}
+                    onChange={(e) => setCustomQuery(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && !followUpLoading && handleCustomQuery()}
+                    disabled={followUpLoading}
+                  />
+                </div>
                 <Button
-                  variant="outline"
                   size="sm"
-                  className="gap-1.5 text-xs h-8"
-                  onClick={() => handleFollowUp("redflags")}
-                  disabled={followUpLoading}
-                >
-                  <AlertTriangle className="h-3.5 w-3.5 text-destructive" />
-                  {followUpLoading && followUpType === "redflags" ? "Loading..." : "Top Red Flags"}
-                </Button>
-                <Button
                   variant="outline"
-                  size="sm"
-                  className="gap-1.5 text-xs h-8"
-                  onClick={() => handleFollowUp("peers")}
-                  disabled={followUpLoading}
+                  className="h-8 gap-1 text-xs shrink-0"
+                  onClick={handleCustomQuery}
+                  disabled={followUpLoading || !customQuery.trim()}
                 >
-                  <BarChart2 className="h-3.5 w-3.5 text-primary" />
-                  {followUpLoading && followUpType === "peers" ? "Loading..." : "Compare with Peers"}
+                  <Send className="h-3 w-3" />
+                  Ask
                 </Button>
+              </div>
+
+              {/* Custom query suggestions */}
+              <div className="flex flex-wrap gap-1.5">
+                {[
+                  "What's the debt repayment schedule?",
+                  "Any SEBI actions against management?",
+                  "Order book visibility for next 2 years?",
+                  "Export revenue contribution?",
+                  "Working capital cycle trend?",
+                  "Promoter interview or podcast insights?",
+                ].map((suggestion) => (
+                  <button
+                    key={suggestion}
+                    onClick={() => setCustomQuery(suggestion)}
+                    className="rounded-full border border-border px-2.5 py-1 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                    disabled={followUpLoading}
+                  >
+                    {suggestion}
+                  </button>
+                ))}
               </div>
             </div>
           )}
@@ -711,54 +862,74 @@ export function AIResearchPanel({ prefillTicker, onPrefillConsumed }: AIResearch
       )}
 
       {/* Follow-up result */}
-      {followUpText && !followUpLoading && (
-        <Card className="p-5">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              {followUpType === "redflags" ? (
-                <>
-                  <AlertTriangle className="h-4 w-4 text-destructive" />
-                  <h3 className="font-semibold text-sm">Red Flags — {currentStock}</h3>
-                </>
-              ) : (
-                <>
-                  <BarChart2 className="h-4 w-4 text-primary" />
-                  <h3 className="font-semibold text-sm">Peer Comparison — {currentStock}</h3>
-                </>
-              )}
-            </div>
-            <div className="flex gap-1">
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 gap-1 text-xs"
-                onClick={() => navigator.clipboard.writeText(followUpText).then(() => toast.success("Copied!"))}
-              >
-                <Copy className="h-3 w-3" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 w-7 p-0"
-                onClick={() => setFollowUpText(null)}
-              >
-                <X className="h-3.5 w-3.5" />
-              </Button>
-            </div>
-          </div>
-          <ReportRenderer text={followUpText} />
-        </Card>
-      )}
-
       {followUpLoading && (
         <Card className="p-5">
           <div className="flex items-center gap-2 mb-3">
             <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
             <span className="text-sm text-muted-foreground">
-              {followUpType === "redflags" ? "Identifying red flags..." : "Comparing with peers..."}
+              Loading <span className="font-medium text-foreground">{followUpLabel}</span> for {currentStock}...
             </span>
           </div>
           <ReportSkeleton />
+        </Card>
+      )}
+
+      {followUpText && !followUpLoading && (
+        <Card className="p-5">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              {(() => {
+                const btn = DIG_DEEPER_BUTTONS.find((b) => b.type === followUpType);
+                if (btn) {
+                  const Icon = btn.icon;
+                  return (
+                    <>
+                      <Icon className={cn("h-4 w-4", btn.iconClass)} />
+                      <h3 className="font-semibold text-sm">
+                        {followUpType === "custom" ? followUpLabel : `${btn.label} — ${currentStock}`}
+                      </h3>
+                    </>
+                  );
+                }
+                return (
+                  <>
+                    <MessageSquare className="h-4 w-4 text-primary" />
+                    <h3 className="font-semibold text-sm">{followUpLabel} — {currentStock}</h3>
+                  </>
+                );
+              })()}
+            </div>
+            <div className="flex gap-1">
+              <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs"
+                onClick={() => navigator.clipboard.writeText(followUpText).then(() => toast.success("Copied!"))}>
+                <Copy className="h-3 w-3" />
+              </Button>
+              <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setFollowUpText(null)}>
+                <X className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          </div>
+          <ReportRenderer text={followUpText} />
+
+          {/* Allow follow-up on follow-up */}
+          <div className="mt-4 pt-3 border-t border-border flex gap-2">
+            <div className="relative flex-1">
+              <MessageSquare className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+              <Input
+                className="pl-9 text-xs h-8"
+                placeholder="Ask a follow-up..."
+                value={customQuery}
+                onChange={(e) => setCustomQuery(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && !followUpLoading && handleCustomQuery()}
+                disabled={followUpLoading}
+              />
+            </div>
+            <Button size="sm" variant="outline" className="h-8 gap-1 text-xs shrink-0"
+              onClick={handleCustomQuery} disabled={followUpLoading || !customQuery.trim()}>
+              <Send className="h-3 w-3" />
+              Ask
+            </Button>
+          </div>
         </Card>
       )}
 
@@ -766,17 +937,14 @@ export function AIResearchPanel({ prefillTicker, onPrefillConsumed }: AIResearch
       {!displayText && !loading && (
         <div className="rounded-2xl border border-dashed border-border p-10 text-center space-y-2">
           <Sparkles className="h-8 w-8 text-muted-foreground/40 mx-auto" />
-          <p className="text-sm font-medium text-muted-foreground">Type any NSE stock above</p>
+          <p className="text-sm font-medium text-muted-foreground">Type any NSE/BSE stock above</p>
           <p className="text-xs text-muted-foreground/60">
-            Aurum will stream live data as it generates — results appear instantly
+            Full report with promoter profile, AGM commentary, shareholding & verdict
           </p>
           <div className="flex flex-wrap justify-center gap-2 pt-2">
             {["APOLLOMICRO", "TATAMOTORS", "IRFC", "ZOMATO", "DIXON"].map((s) => (
-              <button
-                key={s}
-                onClick={() => { setQuery(s); handleAnalyse(s); }}
-                className="inline-flex items-center gap-0.5 rounded-full border border-border px-3 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-              >
+              <button key={s} onClick={() => { setQuery(s); handleAnalyse(s); }}
+                className="inline-flex items-center gap-0.5 rounded-full border border-border px-3 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
                 {s} <ChevronRight className="h-3 w-3" />
               </button>
             ))}
@@ -784,15 +952,14 @@ export function AIResearchPanel({ prefillTicker, onPrefillConsumed }: AIResearch
         </div>
       )}
 
-      {/* Portfolio Health Check promo */}
       {!displayText && !loading && (
         <Card className="p-4 border-dashed border-primary/30 bg-primary/5">
           <div className="flex items-center gap-2 mb-1">
             <TrendingUp className="h-4 w-4 text-primary" />
-            <span className="text-xs font-semibold text-foreground">New: Stock Picks & Smart Money</span>
+            <span className="text-xs font-semibold text-foreground">Dig Deeper options after every report</span>
           </div>
           <p className="text-xs text-muted-foreground">
-            Check the <span className="font-medium text-foreground">Picks</span> tab for AI-curated large/mid/small cap and SME picks, FII/DII accumulation signals, and ace investor tracking.
+            Promoter profile · AGM/Concall highlights · Shareholding trend · Peer compare · Red flags · Ask anything custom
           </p>
         </Card>
       )}
