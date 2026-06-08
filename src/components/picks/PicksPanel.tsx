@@ -1,125 +1,215 @@
-import { useState, useCallback } from "react";
+/**
+ * PicksPanel — Real screener using your existing Yahoo Finance API
+ *
+ * How it works:
+ * 1. Each category has a curated universe of ~20-30 real NSE tickers
+ * 2. We fetch live quotes for all of them using your existing fetchQuote API
+ * 3. We score and filter using real financial data (PE, ROE, margins, 52W fall, etc.)
+ * 4. Top picks are shown with REAL live prices and metrics
+ * 5. Gemini (optional) writes a thesis ONLY for the pre-screened winners — not for stock selection
+ * 6. Smart Money uses Gemini with google_search to pull real FII/DII/ace investor data
+ */
+
+import { useState, useCallback, useEffect } from "react";
 import {
   TrendingUp, Building2, Layers, Zap, Gem,
   Users, Eye, RefreshCw, ChevronDown, ChevronUp,
-  Key, ExternalLink, Star, AlertCircle, Sparkles,
+  Sparkles, AlertCircle, BarChart2, ArrowUpRight,
+  Star, Info, ExternalLink,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { fetchQuote } from "@/services/api";
+import type { StockQuote } from "@/types/stock.types";
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 type CapCategory = "largecap" | "midcap" | "smallcap" | "sme";
-type SmartMoneyTab = "fiidii" | "ace" | "analyst";
+type SmartTab = "fiidii" | "ace" | "analyst";
 
-interface StockPick {
+interface ScoredStock {
   ticker: string;
-  name: string;
-  cmp: string;
-  target: string;
-  upside: string;
-  horizon: string;
-  thesis: string;
-  catalyst: string;
-  conviction: "High" | "Medium" | "Low";
-  risk: string;
+  quote: StockQuote;
+  score: number;
+  scoreBreakdown: string[];
+  fallFromHigh: number;    // % below 52W high (positive = fallen)
+  thesis?: string;         // Gemini-generated, optional
+  thesisLoading?: boolean;
 }
 
-interface FiiDiiEntry {
+interface SmartMoneyEntry {
   ticker: string;
   name: string;
-  sector: string;
-  fiiChange: string;
-  diiChange: string;
+  detail: string;          // e.g. "FII +1.8% QoQ" or "Ashish Kacholia +0.4%"
   signal: string;
-  recentNews: string;
+  extra: string;
+  type: "fiidii" | "ace" | "analyst";
 }
 
-interface AceInvestorEntry {
-  investor: string;
-  ticker: string;
-  name: string;
-  holdingPct: string;
-  qoqChange: string;
-  thesis: string;
+// ─── Stock universes — real NSE tickers ──────────────────────────────────────
+// These are curated manually — real companies, real tickers.
+// Yahoo Finance NS suffix added in fetchQuote via your Cloudflare worker.
+
+const UNIVERSES: Record<CapCategory, string[]> = {
+  largecap: [
+    "HDFCBANK", "AXISBANK", "ICICIBANK", "KOTAKBANK", "SBIN",
+    "TATAMOTORS", "MARUTI", "BAJAJ-AUTO", "HEROMOTOCO", "M&M",
+    "SUNPHARMA", "DRREDDY", "CIPLA", "DIVISLAB",
+    "WIPRO", "TECHM", "LTIM", "HCLTECH",
+    "TITAN", "HINDUNILVR", "NESTLEIND", "DABUR",
+    "NTPC", "POWERGRID", "ONGC", "COALINDIA",
+    "JSWSTEEL", "TATASTEEL", "HINDALCO",
+    "BAJFINANCE", "BAJAJFINSV",
+  ],
+  midcap: [
+    "PERSISTENT", "COFORGE", "MPHASIS", "KSOLVES",
+    "APOLLOHOSP", "METROPOLIS", "VIJAYA",
+    "SUPREMEIND", "ASTRAL", "PRINCEPIPE",
+    "CAMS", "CDSL", "BSESMO",
+    "IRCTC", "CONCOR",
+    "IDFCFIRSTB", "FEDERALBNK", "KARURVYSYA",
+    "SCHAEFFLER", "TIMKEN", "GRINDWELL",
+    "JKCEMENT", "RAMCOCEM", "HEIDELBERG",
+    "TRENT", "VEDL", "APLAPOLLO",
+    "SOLARINDS", "CLEAN",
+  ],
+  smallcap: [
+    "APOLLOMICRO", "DATAMATICS", "NUCLEUS",
+    "PARADEEP", "GPIL", "MANINFRA",
+    "KAYNES", "SYRMA", "AVALON",
+    "RATEGAIN", "ROUTE", "CARTRADE",
+    "RVNL", "IRFC", "RAILTEL",
+    "SUZLON", "INOXWIND", "WAAREE",
+    "IDEAFORGE", "PARAS",
+    "ELECON", "TEXRAIL", "TITAGARH",
+    "VAIBHAVGBL", "GOLDIAM",
+    "PNBHOUSING", "AAVAS",
+  ],
+  sme: [
+    // BSE SME / NSE Emerge — actual listed names
+    // Note: SME tickers on Yahoo may need .BO suffix handled by your worker
+    "YATHARTH", "SARVESHWAR", "CONCORD",
+    "SENCO", "ARCHEAN", "GANDHAR",
+    "SAAKSHI", "AZAD",
+    "NUVOCO", "MACROTECH",
+    "NYKAA", "ZOMATO", "DELHIVERY",
+    "IDEAFORGE", "IXIGO",
+  ],
+};
+
+// ─── Scoring logic — uses REAL data from your API ─────────────────────────────
+
+interface ScoreResult {
+  score: number;
+  breakdown: string[];
 }
 
-interface AnalystEntry {
-  ticker: string;
-  name: string;
-  buyRatings: number;
-  avgTarget: string;
-  upside: string;
-  topBroker: string;
-  recentCall: string;
+function scoreLargecap(q: StockQuote, fallFromHigh: number): ScoreResult {
+  // Large cap recovery: fallen quality names with improving signals
+  let score = 0;
+  const breakdown: string[] = [];
+
+  if (fallFromHigh >= 30) { score += 30; breakdown.push(`▼ ${fallFromHigh.toFixed(0)}% from 52W high`); }
+  else if (fallFromHigh >= 20) { score += 20; breakdown.push(`▼ ${fallFromHigh.toFixed(0)}% from 52W high`); }
+  else if (fallFromHigh >= 10) { score += 10; breakdown.push(`▼ ${fallFromHigh.toFixed(0)}% from 52W high`); }
+
+  if (q.returnOnEquity != null && q.returnOnEquity > 0.15) { score += 20; breakdown.push(`ROE ${(q.returnOnEquity * 100).toFixed(1)}%`); }
+  else if (q.returnOnEquity != null && q.returnOnEquity > 0.10) { score += 10; breakdown.push(`ROE ${(q.returnOnEquity * 100).toFixed(1)}%`); }
+
+  if (q.operatingMargins != null && q.operatingMargins > 0.15) { score += 15; breakdown.push(`OPM ${(q.operatingMargins * 100).toFixed(1)}%`); }
+
+  if (q.pe != null && q.pe > 0 && q.pe < 20) { score += 20; breakdown.push(`PE ${q.pe.toFixed(1)}x — cheap`); }
+  else if (q.pe != null && q.pe > 0 && q.pe < 30) { score += 10; breakdown.push(`PE ${q.pe.toFixed(1)}x`); }
+
+  if (q.debtToEquity != null && q.debtToEquity < 0.5) { score += 10; breakdown.push("Low leverage"); }
+  if (q.heldPercentInstitutions != null && q.heldPercentInstitutions > 0.4) { score += 5; breakdown.push("High inst. holding"); }
+
+  return { score, breakdown };
 }
 
-type PicksResult =
-  | { type: "picks"; category: CapCategory; stocks: StockPick[]; generatedAt: string }
-  | { type: "fiidii"; entries: FiiDiiEntry[]; generatedAt: string }
-  | { type: "ace"; entries: AceInvestorEntry[]; generatedAt: string }
-  | { type: "analyst"; entries: AnalystEntry[]; generatedAt: string };
+function scoreMidcap(q: StockQuote): ScoreResult {
+  // Mid cap compounder: high ROE, good margins, revenue growth, manageable PE
+  let score = 0;
+  const breakdown: string[] = [];
 
-const LS_KEY_API = "gemini_api_key";
+  if (q.returnOnEquity != null && q.returnOnEquity > 0.20) { score += 30; breakdown.push(`ROE ${(q.returnOnEquity * 100).toFixed(1)}% — excellent`); }
+  else if (q.returnOnEquity != null && q.returnOnEquity > 0.15) { score += 20; breakdown.push(`ROE ${(q.returnOnEquity * 100).toFixed(1)}%`); }
+
+  if (q.revenueGrowth != null && q.revenueGrowth > 0.20) { score += 25; breakdown.push(`Rev growth ${(q.revenueGrowth * 100).toFixed(1)}% YoY`); }
+  else if (q.revenueGrowth != null && q.revenueGrowth > 0.12) { score += 15; breakdown.push(`Rev growth ${(q.revenueGrowth * 100).toFixed(1)}% YoY`); }
+
+  if (q.operatingMargins != null && q.operatingMargins > 0.15) { score += 20; breakdown.push(`OPM ${(q.operatingMargins * 100).toFixed(1)}%`); }
+
+  if (q.debtToEquity != null && q.debtToEquity < 0.3) { score += 15; breakdown.push("Near debt-free"); }
+  else if (q.debtToEquity != null && q.debtToEquity < 0.7) { score += 8; breakdown.push("Low debt"); }
+
+  if (q.pe != null && q.pe > 0 && q.pe < 40) { score += 10; breakdown.push(`PE ${q.pe.toFixed(1)}x — reasonable`); }
+
+  return { score, breakdown };
+}
+
+function scoreSmallcap(q: StockQuote, fallFromHigh: number): ScoreResult {
+  // Small cap multibagger: high growth, improving margins, not over-valued
+  let score = 0;
+  const breakdown: string[] = [];
+
+  if (q.revenueGrowth != null && q.revenueGrowth > 0.30) { score += 35; breakdown.push(`Rev growth ${(q.revenueGrowth * 100).toFixed(1)}% YoY`); }
+  else if (q.revenueGrowth != null && q.revenueGrowth > 0.20) { score += 25; breakdown.push(`Rev growth ${(q.revenueGrowth * 100).toFixed(1)}% YoY`); }
+  else if (q.revenueGrowth != null && q.revenueGrowth > 0.10) { score += 15; breakdown.push(`Rev growth ${(q.revenueGrowth * 100).toFixed(1)}%`); }
+
+  if (q.operatingMargins != null && q.operatingMargins > 0.12) { score += 20; breakdown.push(`OPM ${(q.operatingMargins * 100).toFixed(1)}%`); }
+
+  if (q.returnOnEquity != null && q.returnOnEquity > 0.15) { score += 20; breakdown.push(`ROE ${(q.returnOnEquity * 100).toFixed(1)}%`); }
+
+  if (q.debtToEquity != null && q.debtToEquity < 0.3) { score += 15; breakdown.push("Debt-free / minimal debt"); }
+
+  // For small caps, some fall from high is actually a buying opportunity
+  if (fallFromHigh >= 15 && fallFromHigh <= 40) { score += 10; breakdown.push(`▼ ${fallFromHigh.toFixed(0)}% entry opportunity`); }
+
+  return { score, breakdown };
+}
+
+function scoreSME(q: StockQuote): ScoreResult {
+  // SME generational wealth: high growth, clean balance sheet, emerging sectors
+  let score = 0;
+  const breakdown: string[] = [];
+
+  if (q.revenueGrowth != null && q.revenueGrowth > 0.40) { score += 40; breakdown.push(`Rev growth ${(q.revenueGrowth * 100).toFixed(1)}% — explosive`); }
+  else if (q.revenueGrowth != null && q.revenueGrowth > 0.25) { score += 30; breakdown.push(`Rev growth ${(q.revenueGrowth * 100).toFixed(1)}%`); }
+  else if (q.revenueGrowth != null && q.revenueGrowth > 0.15) { score += 15; breakdown.push(`Rev growth ${(q.revenueGrowth * 100).toFixed(1)}%`); }
+
+  if (q.debtToEquity != null && q.debtToEquity < 0.2) { score += 20; breakdown.push("Effectively debt-free"); }
+  else if (q.debtToEquity != null && q.debtToEquity < 0.5) { score += 10; breakdown.push("Low debt"); }
+
+  if (q.returnOnEquity != null && q.returnOnEquity > 0.20) { score += 25; breakdown.push(`ROE ${(q.returnOnEquity * 100).toFixed(1)}%`); }
+  else if (q.returnOnEquity != null && q.returnOnEquity > 0.12) { score += 15; breakdown.push(`ROE ${(q.returnOnEquity * 100).toFixed(1)}%`); }
+
+  if (q.operatingMargins != null && q.operatingMargins > 0.18) { score += 15; breakdown.push(`OPM ${(q.operatingMargins * 100).toFixed(1)}%`); }
+
+  return { score, breakdown };
+}
+
+function scoreStock(category: CapCategory, q: StockQuote): ScoreResult {
+  const fallFromHigh = q.fiftyTwoWeekHigh > 0
+    ? ((q.fiftyTwoWeekHigh - q.cmp) / q.fiftyTwoWeekHigh) * 100
+    : 0;
+
+  switch (category) {
+    case "largecap": return scoreLargecap(q, fallFromHigh);
+    case "midcap":   return scoreMidcap(q);
+    case "smallcap": return scoreSmallcap(q, fallFromHigh);
+    case "sme":      return scoreSME(q);
+  }
+}
+
+// ─── Gemini thesis generator — only for pre-screened winners ─────────────────
+
 const GEMINI_MODEL = "gemini-2.5-flash";
 const GEMINI_URL = (key: string) =>
   `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${key}`;
-
-const CAP_CONFIG: Record<CapCategory, {
-  label: string;
-  icon: React.ElementType;
-  description: string;
-  prompt: string;
-}> = {
-  largecap: {
-    label: "Large Cap Recovery",
-    icon: Building2,
-    description: "Fallen from highs, fundamentals intact, re-rating due",
-    prompt: `Search for Indian large cap stocks (market cap above ₹20,000 Cr, Nifty 100 or Nifty 200) that have fallen 25%+ from their 52-week or all-time high but have strong fundamentals intact. FII buying resuming OR analyst upgrade cycle OR earnings recovery visible in latest quarter. Give exactly 5 stocks. Return ONLY valid JSON with no markdown:
-{"stocks":[{"ticker":"NSE_TICKER","name":"Company Name","cmp":"₹XXX","target":"₹XXX","upside":"XX%","horizon":"6-12 months","thesis":"2 sentence thesis on recovery","catalyst":"specific near-term trigger","conviction":"High","risk":"main downside risk"}]}`,
-  },
-  midcap: {
-    label: "Mid Cap Compounders",
-    icon: Layers,
-    description: "20-30% CAGR compounders on path to large cap",
-    prompt: `Search for Indian mid cap stocks (market cap ₹5,000–₹20,000 Cr) that compound at 20-30% CAGR with clean balance sheets capable of migrating to large cap in 3-5 years. ROCE above 18%, D/E below 0.5, 3yr revenue CAGR above 20%. Give exactly 5 stocks. Return ONLY valid JSON with no markdown:
-{"stocks":[{"ticker":"NSE_TICKER","name":"Company Name","cmp":"₹XXX","target":"₹XXX","upside":"XX%","horizon":"2-3 years","thesis":"2 sentence compounding thesis","catalyst":"specific growth driver","conviction":"High","risk":"main risk"}]}`,
-  },
-  smallcap: {
-    label: "Small Cap Multibaggers",
-    icon: Zap,
-    description: "3-5x potential, sector boom early-stage plays",
-    prompt: `Search for Indian small cap stocks (market cap ₹500–₹5,000 Cr, NSE/BSE mainboard) positioned for 3-5x returns. Early-stage in sector booms: defence, EMS, specialty chemicals, new energy, railways. Business inflection visible in latest 2 quarters. Give exactly 5 stocks. Return ONLY valid JSON with no markdown:
-{"stocks":[{"ticker":"NSE_TICKER","name":"Company Name","cmp":"₹XXX","target":"₹XXX","upside":"XX%","horizon":"2-3 years","thesis":"2 sentence multibagger thesis","catalyst":"specific inflection trigger","conviction":"Medium","risk":"main risk"}]}`,
-  },
-  sme: {
-    label: "SME Generational Wealth",
-    icon: Gem,
-    description: "20-30x potential in 5-7 years, future-tech sectors",
-    prompt: `Search for BSE SME or NSE Emerge listed stocks in future-tech sectors: semiconductor supply chain, space tech, EV powertrains, AI hardware, defence electronics, specialty materials. Strong promoter, debt-free, growing order book. 20-30x potential in 5-7 years. Give exactly 5 stocks. Return ONLY valid JSON with no markdown:
-{"stocks":[{"ticker":"SME_TICKER","name":"Company Name","cmp":"₹XXX","target":"₹XXX","upside":"XXXX%","horizon":"5-7 years","thesis":"2 sentence generational wealth thesis","catalyst":"sector tailwind or order book trigger","conviction":"Medium","risk":"liquidity and SME-specific risks"}]}`,
-  },
-};
-
-function parseGeminiError(err: unknown): string {
-  if (!(err instanceof Error)) return "Unknown error occurred.";
-  const msg = err.message;
-  if (msg.includes("429") || msg.toLowerCase().includes("quota"))
-    return "Rate limit hit — wait ~15 seconds and retry.";
-  if (msg.includes("401") || msg.includes("403"))
-    return "Invalid API key. Check it in the Research tab.";
-  return msg;
-}
-
-function safeParseJSON(text: string): unknown {
-  const clean = text.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
-  const start = clean.indexOf("{");
-  const end = clean.lastIndexOf("}");
-  if (start === -1 || end === -1) throw new Error("No JSON found in response");
-  return JSON.parse(clean.slice(start, end + 1));
-}
 
 type GeminiPart = { text?: string; thought?: boolean };
 
@@ -129,397 +219,721 @@ function extractText(data: unknown): string {
   return parts.filter((p) => typeof p.text === "string" && !p.thought).map((p) => p.text as string).join("");
 }
 
-async function callGemini(apiKey: string, prompt: string): Promise<string> {
+async function generateThesis(apiKey: string, ticker: string, quote: StockQuote, category: CapCategory): Promise<string> {
+  const fallFromHigh = quote.fiftyTwoWeekHigh > 0
+    ? ((quote.fiftyTwoWeekHigh - quote.cmp) / quote.fiftyTwoWeekHigh * 100).toFixed(1)
+    : "N/A";
+
+  const categoryContext: Record<CapCategory, string> = {
+    largecap: "a large cap recovery play — high quality company that has fallen from highs with potential to re-rate",
+    midcap: "a mid cap compounder — consistently growing business capable of 5-10x in 5-7 years",
+    smallcap: "a small cap multibagger candidate — early stage in a sector boom",
+    sme: "an SME generational wealth play — potential 20-30x in 7-10 years in a future-tech sector",
+  };
+
+  const prompt = `You are analysing ${ticker} (${quote.name}) which has been screened as ${categoryContext[category]}.
+
+REAL DATA (live from Yahoo Finance):
+- CMP: ₹${quote.cmp.toFixed(2)}
+- Market Cap: ₹${quote.marketCap > 0 ? (quote.marketCap / 1e7).toFixed(0) + " Cr" : "N/A"}
+- 52W High: ₹${quote.fiftyTwoWeekHigh.toFixed(2)} | Fall from high: ${fallFromHigh}%
+- 52W Low: ₹${quote.fiftyTwoWeekLow.toFixed(2)}
+- PE (TTM): ${quote.pe?.toFixed(1) ?? "N/A"}
+- P/B: ${quote.pb?.toFixed(2) ?? "N/A"}
+- ROE: ${quote.returnOnEquity != null ? (quote.returnOnEquity * 100).toFixed(1) + "%" : "N/A"}
+- Operating Margin: ${quote.operatingMargins != null ? (quote.operatingMargins * 100).toFixed(1) + "%" : "N/A"}
+- Revenue Growth (YoY): ${quote.revenueGrowth != null ? (quote.revenueGrowth * 100).toFixed(1) + "%" : "N/A"}
+- Debt/Equity: ${quote.debtToEquity?.toFixed(2) ?? "N/A"}
+- Institutional Holding: ${quote.heldPercentInstitutions != null ? (quote.heldPercentInstitutions * 100).toFixed(1) + "%" : "N/A"}
+- Sector: ${quote.sector}
+
+Use Google Search to find:
+1. What this company does and its key business
+2. Latest quarterly results trend
+3. Any recent order wins, capacity expansion, or business catalyst
+4. Management quality signal
+
+Then write a 3-sentence investment thesis for this stock. Be specific and use the real data above. Format:
+**Thesis:** [2 sentences on the investment case]
+**Key Catalyst:** [1 specific near-term trigger]
+**Main Risk:** [1 specific risk]
+**Conviction:** High / Medium / Low`;
+
   const res = await fetch(GEMINI_URL(apiKey), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       contents: [{ parts: [{ text: prompt }] }],
       tools: [{ google_search: {} }],
-      generationConfig: { temperature: 0.3, maxOutputTokens: 4096, thinkingConfig: { thinkingBudget: 0 } },
+      generationConfig: { temperature: 0.3, maxOutputTokens: 500, thinkingConfig: { thinkingBudget: 0 } },
     }),
   });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error((err as { error?: { message?: string } })?.error?.message ?? `HTTP ${res.status}`);
-  }
+
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = await res.json();
+  return extractText(data);
+}
+
+async function fetchSmartMoneyData(apiKey: string, tab: SmartTab): Promise<SmartMoneyEntry[]> {
+  const prompts: Record<SmartTab, string> = {
+    fiidii: `Search NSE/BSE shareholding data for Indian stocks where FII (Foreign Institutional Investor) holding increased by more than 1% in the most recent quarter filing available (Q3 or Q4 FY25). Also find stocks where both FII AND DII are simultaneously accumulating. 
+
+Return ONLY a valid JSON array (no markdown, no explanation):
+[{"ticker":"NSE_TICKER","name":"Company Name","detail":"FII +1.8% QoQ to 24.3%","signal":"FII Accumulation","extra":"DII also added 0.5% — both buying","type":"fiidii"}]
+
+Give 6 entries. Use the exact NSE ticker symbol. Base it on the latest publicly available quarterly shareholding disclosures.`,
+
+    ace: `Search for the latest quarterly portfolio disclosures filed with NSE/BSE for these ace investors: Ashish Kacholia, Vijay Kedia, Dolly Khanna, Mukul Agrawal, Porinju Veliyath, Rekha Jhunjhunwala. Find stocks where any of these investors INCREASED their stake in the most recent available quarter (latest 13F-equivalent Indian filing).
+
+Return ONLY a valid JSON array (no markdown):
+[{"ticker":"NSE_TICKER","name":"Company Name","detail":"Ashish Kacholia increased to 3.2% (+0.4% QoQ)","signal":"Ace Investor Adding","extra":"Known for tracking niche manufacturing plays","type":"ace"}]
+
+Give 6 entries with the exact NSE ticker.`,
+
+    analyst: `Search for Indian stocks that received the most Buy or Strong Buy ratings from top broking houses (Motilal Oswal, Kotak Securities, ICICI Direct, Nuvama, Emkay, JM Financial, Antique, Systematix) in the last 30 days. Find stocks with 3+ Buy ratings and upside > 20% from consensus target.
+
+Return ONLY a valid JSON array (no markdown):
+[{"ticker":"NSE_TICKER","name":"Company Name","detail":"4 analysts with Buy — avg target ₹850 (+28% upside)","signal":"Strong Analyst Consensus","extra":"Motilal Oswal initiated with Buy — target ₹900","type":"analyst"}]
+
+Give 6 entries with exact NSE tickers.`,
+  };
+
+  const res = await fetch(GEMINI_URL(apiKey), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompts[tab] }] }],
+      tools: [{ google_search: {} }],
+      generationConfig: { temperature: 0.2, maxOutputTokens: 2000, thinkingConfig: { thinkingBudget: 0 } },
+    }),
+  });
+
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const data = await res.json();
   const text = extractText(data);
-  if (!text) throw new Error("Empty response from Gemini.");
-  return text;
+  const clean = text.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
+  const start = clean.indexOf("[");
+  const end = clean.lastIndexOf("]");
+  if (start === -1 || end === -1) throw new Error("No JSON array in response");
+  const parsed = JSON.parse(clean.slice(start, end + 1)) as SmartMoneyEntry[];
+  if (!Array.isArray(parsed)) throw new Error("Invalid format");
+  return parsed;
 }
 
-async function fetchPicks(apiKey: string, category: CapCategory): Promise<StockPick[]> {
-  const text = await callGemini(apiKey, CAP_CONFIG[category].prompt);
-  const parsed = safeParseJSON(text) as { stocks: StockPick[] };
-  if (!Array.isArray(parsed.stocks)) throw new Error("Unexpected format");
-  return parsed.stocks;
+// ─── Formatters ───────────────────────────────────────────────────────────────
+
+function fmtINR(n: number): string {
+  if (n >= 1e7) return `₹${(n / 1e7).toFixed(0)} Cr`;
+  if (n >= 1e5) return `₹${(n / 1e5).toFixed(0)} L`;
+  return `₹${n.toFixed(0)}`;
 }
 
-async function fetchFiiDii(apiKey: string): Promise<FiiDiiEntry[]> {
-  const prompt = `Search for Indian stocks where FII holding increased more than 1% quarter-on-quarter in the latest shareholding disclosure (NSE/BSE filings). Also find stocks where both FII AND DII are simultaneously increasing. Include large, mid, and small caps. Give exactly 6 stocks. Return ONLY valid JSON with no markdown:
-{"entries":[{"ticker":"NSE_TICKER","name":"Company Name","sector":"Sector","fiiChange":"+X.X% QoQ","diiChange":"+X.X% QoQ","signal":"FII accumulation or Both FII+DII or DII accumulation","recentNews":"one line why institutions are buying"}]}`;
-  const text = await callGemini(apiKey, prompt);
-  const parsed = safeParseJSON(text) as { entries: FiiDiiEntry[] };
-  if (!Array.isArray(parsed.entries)) throw new Error("Unexpected format");
-  return parsed.entries;
+function fmtPct(n: number | null, multiply = false): string {
+  if (n == null) return "—";
+  const val = multiply ? n * 100 : n;
+  return `${val > 0 ? "+" : ""}${val.toFixed(1)}%`;
 }
 
-async function fetchAceInvestors(apiKey: string): Promise<AceInvestorEntry[]> {
-  const prompt = `Search for the latest quarterly portfolio disclosures of these Indian ace investors: Ashish Kacholia, Vijay Kedia, Dolly Khanna, Mukul Agrawal, Porinju Veliyath. Find stocks where any of these investors INCREASED holding in the most recent available quarter. Give exactly 6 entries. Return ONLY valid JSON with no markdown:
-{"entries":[{"investor":"Investor Full Name","ticker":"NSE_TICKER","name":"Company Name","holdingPct":"X.XX%","qoqChange":"+X.XX%","thesis":"one line on why this investor likely bought"}]}`;
-  const text = await callGemini(apiKey, prompt);
-  const parsed = safeParseJSON(text) as { entries: AceInvestorEntry[] };
-  if (!Array.isArray(parsed.entries)) throw new Error("Unexpected format");
-  return parsed.entries;
-}
+// ─── Category config ──────────────────────────────────────────────────────────
 
-async function fetchAnalystPicks(apiKey: string): Promise<AnalystEntry[]> {
-  const prompt = `Search for Indian stocks with the most Buy/Strong Buy ratings from top broking houses (Motilal Oswal, Kotak Securities, ICICI Direct, Nuvama, Emkay, JM Financial) in the last 30 days. Find stocks with 3+ buy ratings and significant target upside. Give exactly 6 stocks. Return ONLY valid JSON with no markdown:
-{"entries":[{"ticker":"NSE_TICKER","name":"Company Name","buyRatings":4,"avgTarget":"₹XXX","upside":"XX%","topBroker":"Broker Name","recentCall":"one line on latest bullish call reason"}]}`;
-  const text = await callGemini(apiKey, prompt);
-  const parsed = safeParseJSON(text) as { entries: AnalystEntry[] };
-  if (!Array.isArray(parsed.entries)) throw new Error("Unexpected format");
-  return parsed.entries;
-}
+const CAP_CONFIG: Record<CapCategory, {
+  label: string;
+  icon: React.ElementType;
+  description: string;
+  horizon: string;
+  minScore: number;
+  topN: number;
+}> = {
+  largecap: {
+    label: "Large Cap Recovery",
+    icon: Building2,
+    description: "Quality large caps fallen 20%+ from highs — screened for strong fundamentals",
+    horizon: "6–18 months",
+    minScore: 40,
+    topN: 5,
+  },
+  midcap: {
+    label: "Mid Cap Compounders",
+    icon: Layers,
+    description: "High-ROE, high-growth mid caps on path to become large caps",
+    horizon: "2–4 years",
+    minScore: 45,
+    topN: 5,
+  },
+  smallcap: {
+    label: "Small Cap Multibaggers",
+    icon: Zap,
+    description: "Sector-boom small caps with 3–5x potential — real financials screened",
+    horizon: "2–3 years",
+    minScore: 40,
+    topN: 5,
+  },
+  sme: {
+    label: "SME / Emerging",
+    icon: Gem,
+    description: "High-growth emerging companies in future-tech sectors",
+    horizon: "5–7 years",
+    minScore: 30,
+    topN: 5,
+  },
+};
 
-function ConvictionBadge({ level }: { level: "High" | "Medium" | "Low" }) {
-  return (
-    <span className={cn(
-      "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold",
-      level === "High" && "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
-      level === "Medium" && "bg-amber-500/15 text-amber-600 dark:text-amber-400",
-      level === "Low" && "bg-muted text-muted-foreground",
-    )}>
-      <Star className="h-2.5 w-2.5" />
-      {level}
-    </span>
-  );
-}
+// ─── Stock card ───────────────────────────────────────────────────────────────
 
-function StockPickCard({ pick, onAnalyse }: { pick: StockPick; onAnalyse: (t: string) => void }) {
+function StockCard({
+  stock,
+  category,
+  apiKey,
+  onAnalyse,
+  onGenerateThesis,
+}: {
+  stock: ScoredStock;
+  category: CapCategory;
+  apiKey: string;
+  onAnalyse: (t: string) => void;
+  onGenerateThesis: (ticker: string) => void;
+}) {
   const [expanded, setExpanded] = useState(false);
+  const { quote: q, fallFromHigh, score, scoreBreakdown, thesis, thesisLoading } = stock;
+
+  const marketCapCr = q.marketCap / 1e7;
+  const dayUp = q.dayChangePct >= 0;
+
   return (
-    <Card className="p-4 space-y-2.5 hover:border-primary/40 transition-colors">
+    <Card className="p-4 space-y-3 hover:border-primary/40 transition-colors">
+      {/* Header row */}
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-mono font-bold text-sm text-foreground">{pick.ticker}</span>
-            <ConvictionBadge level={pick.conviction} />
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="font-mono font-bold text-sm text-foreground">{q.ticker}</span>
+            <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-semibold",
+              score >= 70 ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" :
+              score >= 50 ? "bg-amber-500/15 text-amber-600 dark:text-amber-400" :
+              "bg-muted text-muted-foreground")}>
+              Score {score}
+            </span>
           </div>
-          <p className="text-xs text-muted-foreground truncate mt-0.5">{pick.name}</p>
+          <p className="text-xs text-muted-foreground truncate mt-0.5 max-w-[180px]">{q.name}</p>
+          <p className="text-[10px] text-muted-foreground/60">{q.sector}</p>
         </div>
         <div className="text-right shrink-0">
-          <p className="font-mono text-sm font-semibold text-foreground">{pick.cmp}</p>
-          <p className="text-xs text-emerald-500 font-semibold">↑ {pick.upside}</p>
+          <p className="font-mono font-bold text-sm text-foreground">₹{q.cmp.toFixed(2)}</p>
+          <p className={cn("text-xs font-semibold", dayUp ? "text-emerald-500" : "text-red-500")}>
+            {dayUp ? "▲" : "▼"} {Math.abs(q.dayChangePct).toFixed(2)}%
+          </p>
+          {marketCapCr > 0 && (
+            <p className="text-[10px] text-muted-foreground">{(marketCapCr / 100).toFixed(0)} Cr</p>
+          )}
         </div>
       </div>
-      <p className="text-xs text-muted-foreground leading-relaxed">{pick.thesis}</p>
-      <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
-        <span className="flex items-center gap-1">
-          <TrendingUp className="h-3 w-3 text-primary" />
-          Target: <span className="font-medium text-foreground ml-1">{pick.target}</span>
-        </span>
-        <span className="opacity-40">·</span>
-        <span>{pick.horizon}</span>
+
+      {/* Score badges */}
+      <div className="flex flex-wrap gap-1">
+        {scoreBreakdown.map((b) => (
+          <span key={b} className="rounded-full bg-primary/8 border border-primary/20 px-2 py-0.5 text-[10px] text-primary/80">{b}</span>
+        ))}
       </div>
-      {expanded && (
-        <div className="pt-2 space-y-2 border-t border-border">
-          <div>
-            <p className="text-[11px] font-semibold text-foreground mb-0.5">Catalyst</p>
-            <p className="text-xs text-muted-foreground">{pick.catalyst}</p>
+
+      {/* Key metrics row */}
+      <div className="grid grid-cols-4 gap-1 text-center">
+        {[
+          { label: "PE", val: q.pe != null ? `${q.pe.toFixed(1)}x` : "—" },
+          { label: "ROE", val: q.returnOnEquity != null ? `${(q.returnOnEquity * 100).toFixed(0)}%` : "—" },
+          { label: "OPM", val: q.operatingMargins != null ? `${(q.operatingMargins * 100).toFixed(0)}%` : "—" },
+          { label: "52W↓", val: fallFromHigh > 0 ? `${fallFromHigh.toFixed(0)}%` : "—" },
+        ].map(({ label, val }) => (
+          <div key={label} className="rounded-md bg-muted/40 py-1">
+            <p className="text-[9px] text-muted-foreground">{label}</p>
+            <p className="text-xs font-semibold text-foreground">{val}</p>
           </div>
-          <div>
-            <p className="text-[11px] font-semibold text-foreground mb-0.5">Key Risk</p>
-            <p className="text-xs text-muted-foreground flex items-start gap-1.5">
-              <AlertCircle className="h-3 w-3 text-destructive shrink-0 mt-0.5" />
-              {pick.risk}
-            </p>
+        ))}
+      </div>
+
+      {/* 52W range bar */}
+      {q.fiftyTwoWeekHigh > 0 && q.fiftyTwoWeekLow > 0 && (
+        <div className="space-y-0.5">
+          <div className="flex justify-between text-[9px] text-muted-foreground">
+            <span>₹{q.fiftyTwoWeekLow.toFixed(0)} 52W Low</span>
+            <span>52W High ₹{q.fiftyTwoWeekHigh.toFixed(0)}</span>
+          </div>
+          <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+            <div className="h-full rounded-full bg-primary/60"
+              style={{ width: `${Math.min(100, ((q.cmp - q.fiftyTwoWeekLow) / (q.fiftyTwoWeekHigh - q.fiftyTwoWeekLow)) * 100)}%` }} />
           </div>
         </div>
       )}
+
+      {/* Thesis section */}
+      {expanded && (
+        <div className="pt-1 space-y-2 border-t border-border">
+          {thesis ? (
+            <div className="text-xs text-muted-foreground leading-relaxed space-y-1">
+              {thesis.split("\n").filter((l) => l.trim()).map((line, i) => (
+                <p key={i} dangerouslySetInnerHTML={{
+                  __html: line.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+                }} />
+              ))}
+            </div>
+          ) : thesisLoading ? (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground animate-pulse">
+              <div className="h-3 w-3 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+              Generating thesis with live data...
+            </div>
+          ) : apiKey ? (
+            <Button variant="outline" size="sm" className="h-7 gap-1.5 text-xs w-full"
+              onClick={() => onGenerateThesis(stock.ticker)}>
+              <Sparkles className="h-3 w-3" />
+              Generate AI Thesis (uses Gemini + live search)
+            </Button>
+          ) : (
+            <p className="text-[11px] text-muted-foreground italic">Add Gemini API key in Research tab to generate thesis</p>
+          )}
+
+          {/* Extra metrics when expanded */}
+          <div className="grid grid-cols-2 gap-1.5 text-xs">
+            {[
+              ["Rev Growth", fmtPct(q.revenueGrowth, true)],
+              ["D/E", q.debtToEquity != null ? q.debtToEquity.toFixed(2) : "—"],
+              ["Inst. Hold", q.heldPercentInstitutions != null ? `${(q.heldPercentInstitutions * 100).toFixed(1)}%` : "—"],
+              ["Div Yield", q.dividendYield != null ? `${(q.dividendYield * 100).toFixed(2)}%` : "—"],
+              ["EPS", q.eps != null ? `₹${q.eps.toFixed(2)}` : "—"],
+              ["P/B", q.pb != null ? `${q.pb.toFixed(2)}x` : "—"],
+            ].map(([label, val]) => (
+              <div key={label} className="flex items-center justify-between rounded bg-muted/30 px-2 py-1">
+                <span className="text-[10px] text-muted-foreground">{label}</span>
+                <span className="font-medium text-foreground text-[11px]">{val}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Actions */}
       <div className="flex items-center gap-3 pt-0.5">
-        <button onClick={() => setExpanded(!expanded)} className="flex items-center gap-0.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors">
+        <button onClick={() => setExpanded(!expanded)}
+          className="flex items-center gap-0.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors">
           {expanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-          {expanded ? "Less" : "Details"}
+          {expanded ? "Less" : "Details + Thesis"}
         </button>
-        <button onClick={() => onAnalyse(pick.ticker)} className="flex items-center gap-1 text-[11px] text-primary hover:underline transition-colors">
+        <button onClick={() => onAnalyse(q.ticker)}
+          className="flex items-center gap-1 text-[11px] text-primary hover:underline transition-colors">
           <Sparkles className="h-3 w-3" />
-          Full Report
-          <ExternalLink className="h-2.5 w-2.5" />
+          Full Aurum Report
+          <ArrowUpRight className="h-2.5 w-2.5" />
         </button>
+        <a href={`https://www.screener.in/company/${q.ticker}/`} target="_blank" rel="noopener noreferrer"
+          className="flex items-center gap-0.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors ml-auto">
+          Screener.in <ExternalLink className="h-2.5 w-2.5" />
+        </a>
       </div>
     </Card>
   );
 }
 
-function FiiDiiCard({ entry }: { entry: FiiDiiEntry }) {
-  const bothBuying = entry.signal.toLowerCase().includes("both");
-  return (
-    <Card className={cn("p-4 space-y-2 hover:border-primary/40 transition-colors", bothBuying && "border-emerald-500/30")}>
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="font-mono font-bold text-sm">{entry.ticker}</span>
-            {bothBuying && <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-bold text-emerald-600 dark:text-emerald-400">FII+DII</span>}
-          </div>
-          <p className="text-xs text-muted-foreground">{entry.name} · {entry.sector}</p>
-        </div>
-        <div className="text-right shrink-0 space-y-0.5">
-          <p className="text-xs font-semibold text-emerald-500">FII {entry.fiiChange}</p>
-          <p className="text-xs text-muted-foreground">DII {entry.diiChange}</p>
-        </div>
-      </div>
-      <p className="text-xs text-muted-foreground">{entry.recentNews}</p>
-    </Card>
-  );
-}
+// ─── Smart money card ─────────────────────────────────────────────────────────
 
-function AceCard({ entry }: { entry: AceInvestorEntry }) {
+function SmartMoneyCard({ entry, onAnalyse }: { entry: SmartMoneyEntry; onAnalyse: (t: string) => void }) {
   return (
     <Card className="p-4 space-y-2 hover:border-primary/40 transition-colors">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <span className="font-mono font-bold text-sm">{entry.ticker}</span>
-            <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">{entry.investor.split(" ")[0]}</span>
-          </div>
-          <p className="text-xs text-muted-foreground">{entry.name}</p>
-        </div>
-        <div className="text-right shrink-0">
-          <p className="text-xs font-semibold text-foreground">{entry.holdingPct}</p>
-          <p className="text-xs font-semibold text-emerald-500">{entry.qoqChange}</p>
-        </div>
-      </div>
-      <p className="text-xs text-muted-foreground">{entry.thesis}</p>
-    </Card>
-  );
-}
-
-function AnalystCard({ entry }: { entry: AnalystEntry }) {
-  return (
-    <Card className="p-4 space-y-2 hover:border-primary/40 transition-colors">
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="font-mono font-bold text-sm">{entry.ticker}</span>
-            <span className="rounded-full bg-blue-500/10 px-2 py-0.5 text-[10px] font-semibold text-blue-600 dark:text-blue-400">
-              {entry.buyRatings} Buy{entry.buyRatings !== 1 ? "s" : ""}
+            <span className="font-mono font-bold text-sm text-foreground">{entry.ticker}</span>
+            <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-semibold",
+              entry.type === "fiidii" ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" :
+              entry.type === "ace" ? "bg-amber-500/15 text-amber-600 dark:text-amber-400" :
+              "bg-blue-500/15 text-blue-600 dark:text-blue-400")}>
+              {entry.signal}
             </span>
           </div>
-          <p className="text-xs text-muted-foreground">{entry.name}</p>
+          <p className="text-xs text-muted-foreground mt-0.5">{entry.name}</p>
         </div>
-        <div className="text-right shrink-0">
-          <p className="text-xs font-semibold text-foreground">Target {entry.avgTarget}</p>
-          <p className="text-xs font-semibold text-emerald-500">↑ {entry.upside}</p>
-        </div>
+        <button onClick={() => onAnalyse(entry.ticker)}
+          className="flex items-center gap-0.5 text-[10px] text-primary hover:underline shrink-0">
+          <Sparkles className="h-3 w-3" /> Report
+        </button>
       </div>
-      <p className="text-xs text-muted-foreground">{entry.recentCall}</p>
-      <p className="text-[11px] text-muted-foreground/70">Top broker: {entry.topBroker}</p>
+      <p className="text-xs font-medium text-foreground">{entry.detail}</p>
+      <p className="text-[11px] text-muted-foreground">{entry.extra}</p>
     </Card>
   );
 }
 
-function LoadingGrid() {
+// ─── Skeleton ─────────────────────────────────────────────────────────────────
+
+function LoadingGrid({ count = 4 }: { count?: number }) {
   return (
     <div className="grid gap-3 sm:grid-cols-2">
-      {[1,2,3,4,5].map((i) => (
+      {Array.from({ length: count }).map((_, i) => (
         <Card key={i} className="p-4 space-y-3 animate-pulse">
           <div className="flex justify-between">
-            <div className="space-y-1.5"><div className="h-4 w-20 rounded bg-muted"/><div className="h-3 w-32 rounded bg-muted"/></div>
-            <div className="space-y-1.5 text-right"><div className="h-4 w-16 rounded bg-muted"/><div className="h-3 w-12 rounded bg-muted"/></div>
+            <div className="space-y-1.5">
+              <div className="h-4 w-24 rounded bg-muted" />
+              <div className="h-3 w-36 rounded bg-muted" />
+            </div>
+            <div className="space-y-1.5 text-right">
+              <div className="h-4 w-20 rounded bg-muted" />
+              <div className="h-3 w-14 rounded bg-muted" />
+            </div>
           </div>
-          <div className="h-3 w-full rounded bg-muted"/><div className="h-3 w-5/6 rounded bg-muted"/>
+          <div className="grid grid-cols-4 gap-1">
+            {[1,2,3,4].map((j) => <div key={j} className="h-8 rounded bg-muted" />)}
+          </div>
+          <div className="h-3 w-full rounded bg-muted" />
         </Card>
       ))}
     </div>
   );
 }
 
+// ─── Main PicksPanel ──────────────────────────────────────────────────────────
+
 interface PicksPanelProps {
   onNavigateToResearch?: (ticker: string) => void;
 }
 
 export function PicksPanel({ onNavigateToResearch }: PicksPanelProps) {
-  const [apiKey, setApiKey] = useState<string>(() => localStorage.getItem(LS_KEY_API) ?? "");
-  const [apiKeyInput, setApiKeyInput] = useState("");
+  const apiKey = localStorage.getItem("gemini_api_key") ?? "";
+
   const [activeCapTab, setActiveCapTab] = useState<CapCategory>("largecap");
-  const [smartTab, setSmartTab] = useState<SmartMoneyTab>("fiidii");
-  const [picksCache, setPicksCache] = useState<Partial<Record<CapCategory, PicksResult>>>({});
-  const [smartCache, setSmartCache] = useState<Partial<Record<SmartMoneyTab, PicksResult>>>({});
-  const [loading, setLoading] = useState<string | null>(null);
+  const [smartTab, setSmartTab] = useState<SmartTab>("fiidii");
 
-  const handleSaveKey = () => {
-    const k = apiKeyInput.trim();
-    if (!k) { toast.error("Enter a valid API key"); return; }
-    localStorage.setItem(LS_KEY_API, k);
-    setApiKey(k);
-    toast.success("API key saved!");
-  };
+  // Screener state
+  const [picksCache, setPicksCache] = useState<Partial<Record<CapCategory, ScoredStock[]>>>({});
+  const [picksLoading, setPicksLoading] = useState<CapCategory | null>(null);
+  const [picksTime, setPicksTime] = useState<Partial<Record<CapCategory, string>>>({});
+  const [picksError, setPicksError] = useState<string | null>(null);
 
-  const loadPicks = useCallback(async (category: CapCategory, force = false) => {
-    if (!apiKey) { toast.error("Add your Gemini API key first"); return; }
+  // Smart money state
+  const [smartCache, setSmartCache] = useState<Partial<Record<SmartTab, SmartMoneyEntry[]>>>({});
+  const [smartLoading, setSmartLoading] = useState<SmartTab | null>(null);
+  const [smartTime, setSmartTime] = useState<Partial<Record<SmartTab, string>>>({});
+
+  // Thesis generation per ticker
+  const [thesisLoading, setThesisLoading] = useState<Set<string>>(new Set());
+
+  const runScreener = useCallback(async (category: CapCategory, force = false) => {
     if (!force && picksCache[category]) return;
-    setLoading(category);
-    try {
-      const stocks = await fetchPicks(apiKey, category);
-      setPicksCache(prev => ({ ...prev, [category]: { type: "picks", category, stocks, generatedAt: new Date().toLocaleString("en-IN") } }));
-    } catch (err) { toast.error(parseGeminiError(err)); }
-    finally { setLoading(null); }
-  }, [apiKey, picksCache]);
+    setPicksLoading(category);
+    setPicksError(null);
 
-  const loadSmartMoney = useCallback(async (tab: SmartMoneyTab, force = false) => {
-    if (!apiKey) { toast.error("Add your Gemini API key first"); return; }
-    if (!force && smartCache[tab]) return;
-    setLoading(tab);
+    const universe = UNIVERSES[category];
+    const config = CAP_CONFIG[category];
+
     try {
-      let result: PicksResult;
-      if (tab === "fiidii") {
-        result = { type: "fiidii", entries: await fetchFiiDii(apiKey), generatedAt: new Date().toLocaleString("en-IN") };
-      } else if (tab === "ace") {
-        result = { type: "ace", entries: await fetchAceInvestors(apiKey), generatedAt: new Date().toLocaleString("en-IN") };
-      } else {
-        result = { type: "analyst", entries: await fetchAnalystPicks(apiKey), generatedAt: new Date().toLocaleString("en-IN") };
+      // Batch fetch all quotes (parallel, but throttled to avoid rate limits)
+      const BATCH = 6;
+      const quotes: { ticker: string; quote: StockQuote | null }[] = [];
+
+      for (let i = 0; i < universe.length; i += BATCH) {
+        const batch = universe.slice(i, i + BATCH);
+        const results = await Promise.allSettled(
+          batch.map(async (ticker) => {
+            const q = await fetchQuote(ticker + ".NS");
+            return { ticker, quote: q };
+          })
+        );
+        for (const r of results) {
+          if (r.status === "fulfilled") quotes.push(r.value);
+          else quotes.push({ ticker: batch[results.indexOf(r as PromiseSettledResult<unknown>)], quote: null });
+        }
+        // Small delay between batches to be kind to the API
+        if (i + BATCH < universe.length) await new Promise((r) => setTimeout(r, 300));
       }
-      setSmartCache(prev => ({ ...prev, [tab]: result }));
-    } catch (err) { toast.error(parseGeminiError(err)); }
-    finally { setLoading(null); }
+
+      // Score and filter
+      const scored: ScoredStock[] = quotes
+        .filter((q) => q.quote != null && q.quote.cmp > 0)
+        .map(({ ticker, quote }) => {
+          const q = quote!;
+          const fallFromHigh = q.fiftyTwoWeekHigh > 0
+            ? ((q.fiftyTwoWeekHigh - q.cmp) / q.fiftyTwoWeekHigh) * 100
+            : 0;
+          const { score, breakdown } = scoreStock(category, q);
+          return { ticker: q.ticker.replace(".NS", ""), quote: q, score, scoreBreakdown: breakdown, fallFromHigh };
+        })
+        .filter((s) => s.score >= config.minScore)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, config.topN);
+
+      if (scored.length === 0) {
+        setPicksError("No stocks passed the screener filters right now. Try refreshing or check back later.");
+      }
+
+      setPicksCache((prev) => ({ ...prev, [category]: scored }));
+      setPicksTime((prev) => ({ ...prev, [category]: new Date().toLocaleTimeString("en-IN") }));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      setPicksError(`Screener failed: ${msg}. Check your internet connection.`);
+    } finally {
+      setPicksLoading(null);
+    }
+  }, [picksCache]);
+
+  const handleGenerateThesis = useCallback(async (ticker: string) => {
+    if (!apiKey) { toast.error("Add Gemini API key in the Research tab first"); return; }
+    const allPicks = Object.values(picksCache).flat();
+    const stock = allPicks.find((s) => s.ticker === ticker);
+    if (!stock) return;
+
+    setThesisLoading((prev) => new Set([...prev, ticker]));
+    // Mark loading in the stock object
+    setPicksCache((prev) => {
+      const updated = { ...prev };
+      for (const cat of Object.keys(updated) as CapCategory[]) {
+        updated[cat] = updated[cat]?.map((s) =>
+          s.ticker === ticker ? { ...s, thesisLoading: true } : s
+        );
+      }
+      return updated;
+    });
+
+    try {
+      const thesis = await generateThesis(apiKey, ticker, stock.quote, activeCapTab);
+      setPicksCache((prev) => {
+        const updated = { ...prev };
+        for (const cat of Object.keys(updated) as CapCategory[]) {
+          updated[cat] = updated[cat]?.map((s) =>
+            s.ticker === ticker ? { ...s, thesis, thesisLoading: false } : s
+          );
+        }
+        return updated;
+      });
+    } catch (err) {
+      toast.error("Thesis generation failed — check your Gemini API key");
+    } finally {
+      setThesisLoading((prev) => {
+        const next = new Set(prev);
+        next.delete(ticker);
+        return next;
+      });
+    }
+  }, [apiKey, picksCache, activeCapTab]);
+
+  const runSmartMoney = useCallback(async (tab: SmartTab, force = false) => {
+    if (!apiKey) { toast.error("Add Gemini API key in the Research tab to use Smart Money"); return; }
+    if (!force && smartCache[tab]) return;
+    setSmartLoading(tab);
+
+    try {
+      const entries = await fetchSmartMoneyData(apiKey, tab);
+      setSmartCache((prev) => ({ ...prev, [tab]: entries }));
+      setSmartTime((prev) => ({ ...prev, [tab]: new Date().toLocaleTimeString("en-IN") }));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Smart money fetch failed");
+    } finally {
+      setSmartLoading(null);
+    }
   }, [apiKey, smartCache]);
+
+  // Auto-load first tab on mount
+  useEffect(() => {
+    runScreener("largecap");
+  }, []);  // eslint-disable-line
 
   const currentPicks = picksCache[activeCapTab];
   const currentSmart = smartCache[smartTab];
-  const isLoadingCap = loading === activeCapTab;
-  const isLoadingSmart = loading === smartTab;
+  const isLoadingCap = picksLoading === activeCapTab;
+  const isLoadingSmart = smartLoading === smartTab;
+  const cfg = CAP_CONFIG[activeCapTab];
 
-  if (!apiKey) {
-    return (
-      <div className="space-y-5">
-        <div className="flex items-center gap-2">
-          <TrendingUp className="h-5 w-5 text-primary" />
-          <h2 className="font-display text-xl font-bold">Stock Picks</h2>
-          <Badge variant="outline" className="text-[10px]">AI-Powered · Live Data</Badge>
-        </div>
-        <Card className="p-6 space-y-4 border-dashed">
-          <div className="flex items-center gap-2"><Key className="h-5 w-5 text-primary"/><h3 className="font-semibold">Gemini API Key Required</h3></div>
-          <p className="text-sm text-muted-foreground">Same Gemini key as AI Research. Set it once and it works everywhere.</p>
-          <div className="flex gap-2">
-            <Input placeholder="Paste your Gemini API key..." value={apiKeyInput} onChange={(e) => setApiKeyInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleSaveKey()} type="password" className="font-mono text-xs"/>
-            <Button onClick={handleSaveKey} className="shrink-0">Save</Button>
-          </div>
-        </Card>
-      </div>
-    );
-  }
-
-  const SMART_TABS: { id: SmartMoneyTab; label: string }[] = [
-    { id: "fiidii", label: "FII / DII Accumulation" },
-    { id: "ace", label: "Ace Investor Buys" },
-    { id: "analyst", label: "Analyst Consensus" },
+  const SMART_TABS: { id: SmartTab; label: string; icon: React.ElementType }[] = [
+    { id: "fiidii", label: "FII / DII Flows", icon: Users },
+    { id: "ace", label: "Ace Investors", icon: Star },
+    { id: "analyst", label: "Analyst Buys", icon: BarChart2 },
   ];
 
   return (
     <div className="space-y-6">
-      {/* ── Cap-Wise Picks ── */}
-      <section className="space-y-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <TrendingUp className="h-5 w-5 text-primary" />
-            <h2 className="font-display text-xl font-bold">Cap-Wise Picks</h2>
-          </div>
-          <Badge variant="outline" className="text-[10px] gap-1"><Sparkles className="h-2.5 w-2.5"/>Live Data</Badge>
+      {/* ── Real Screener header ── */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <TrendingUp className="h-5 w-5 text-primary" />
+          <h2 className="font-display text-xl font-bold">Stock Screener</h2>
         </div>
-        <div className="flex gap-1.5 overflow-x-auto pb-1">
-          {(Object.keys(CAP_CONFIG) as CapCategory[]).map((cat) => {
-            const cfg = CAP_CONFIG[cat];
-            const Icon = cfg.icon;
-            return (
-              <button key={cat} onClick={() => { setActiveCapTab(cat); loadPicks(cat); }}
-                className={cn("flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-medium whitespace-nowrap transition-all shrink-0",
-                  activeCapTab === cat ? "border-primary bg-primary/10 text-primary" : "border-border bg-card text-muted-foreground hover:border-primary/30 hover:text-foreground"
-                )}>
-                <Icon className="h-3.5 w-3.5" />{cfg.label}
-                {!!picksCache[cat] && activeCapTab !== cat && <span className="h-1.5 w-1.5 rounded-full bg-primary/50"/>}
-              </button>
-            );
-          })}
+        <div className="flex items-center gap-1.5">
+          <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+          <span className="text-[11px] text-muted-foreground">Live data via Yahoo Finance</span>
         </div>
-        <div className="flex items-center justify-between">
-          <p className="text-xs text-muted-foreground">{CAP_CONFIG[activeCapTab].description}</p>
-          <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs" onClick={() => loadPicks(activeCapTab, true)} disabled={isLoadingCap}>
-            <RefreshCw className={cn("h-3 w-3", isLoadingCap && "animate-spin")}/>
-            {isLoadingCap ? "Loading..." : currentPicks ? "Refresh" : "Load Picks"}
+      </div>
+
+      {/* How it works note */}
+      <Card className="p-3 bg-muted/40 border-dashed">
+        <div className="flex items-start gap-2">
+          <Info className="h-3.5 w-3.5 text-muted-foreground shrink-0 mt-0.5" />
+          <p className="text-[11px] text-muted-foreground leading-relaxed">
+            <strong className="text-foreground">How it works:</strong> Fetches live NSE data for a curated universe of {Object.values(UNIVERSES).reduce((a, b) => a + b.length, 0)} stocks. Scores each using real metrics (ROE, margins, PE, 52W fall, growth). Shows top picks by score. Thesis is AI-generated separately — stock selection is 100% data-driven.
+          </p>
+        </div>
+      </Card>
+
+      {/* ── Cap tabs ── */}
+      <div className="flex gap-1.5 overflow-x-auto pb-1">
+        {(Object.keys(CAP_CONFIG) as CapCategory[]).map((cat) => {
+          const Icon = CAP_CONFIG[cat].icon;
+          return (
+            <button key={cat}
+              onClick={() => { setActiveCapTab(cat); runScreener(cat); }}
+              className={cn("flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-medium whitespace-nowrap transition-all shrink-0",
+                activeCapTab === cat
+                  ? "border-primary bg-primary/10 text-primary"
+                  : "border-border bg-card text-muted-foreground hover:border-primary/30 hover:text-foreground")}>
+              <Icon className="h-3.5 w-3.5" />
+              {CAP_CONFIG[cat].label}
+              {picksCache[cat] && activeCapTab !== cat && (
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" title="Loaded" />
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Description + refresh */}
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-xs text-muted-foreground">{cfg.description}</p>
+          <p className="text-[10px] text-muted-foreground/60">Horizon: {cfg.horizon} · Universe: {UNIVERSES[activeCapTab].length} stocks · Min score: {cfg.minScore}</p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          {picksTime[activeCapTab] && (
+            <span className="text-[10px] text-muted-foreground">as of {picksTime[activeCapTab]}</span>
+          )}
+          <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs"
+            onClick={() => runScreener(activeCapTab, true)} disabled={isLoadingCap}>
+            <RefreshCw className={cn("h-3 w-3", isLoadingCap && "animate-spin")} />
+            {isLoadingCap ? `Fetching ${UNIVERSES[activeCapTab].length} stocks...` : "Refresh"}
           </Button>
         </div>
-        {isLoadingCap ? <LoadingGrid /> : currentPicks && currentPicks.type === "picks" ? (
-          <>
-            <div className="grid gap-3 sm:grid-cols-2">
-              {currentPicks.stocks.map((pick) => (
-                <StockPickCard key={pick.ticker} pick={pick} onAnalyse={(ticker) => { onNavigateToResearch?.(ticker); toast.info(`Navigate to Research → type ${ticker}`); }}/>
-              ))}
-            </div>
-            <p className="text-[10px] text-muted-foreground/70 text-right">Generated {currentPicks.generatedAt} · Not investment advice</p>
-          </>
-        ) : (
-          <div className="rounded-2xl border border-dashed border-border p-10 text-center space-y-3">
-            {(() => { const Icon = CAP_CONFIG[activeCapTab].icon; return <Icon className="h-8 w-8 text-muted-foreground/30 mx-auto"/>; })()}
-            <p className="text-sm font-medium text-muted-foreground">{CAP_CONFIG[activeCapTab].description}</p>
-            <Button size="sm" onClick={() => loadPicks(activeCapTab)} className="gap-1.5"><Sparkles className="h-3.5 w-3.5"/>Generate Picks</Button>
-          </div>
-        )}
-      </section>
+      </div>
 
-      {/* ── Smart Money ── */}
-      <section className="space-y-4 border-t border-border pt-6">
-        <div className="flex items-center gap-2">
-          <Eye className="h-5 w-5 text-primary"/>
-          <h2 className="font-display text-xl font-bold">Smart Money Tracker</h2>
+      {/* Screener output */}
+      {isLoadingCap ? (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <div className="h-3 w-3 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+            Fetching live data for {UNIVERSES[activeCapTab].length} stocks and scoring them...
+          </div>
+          <LoadingGrid />
         </div>
+      ) : picksError ? (
+        <Card className="p-6 text-center space-y-2 border-destructive/30">
+          <AlertCircle className="h-6 w-6 text-destructive/60 mx-auto" />
+          <p className="text-sm text-muted-foreground">{picksError}</p>
+          <Button size="sm" variant="outline" onClick={() => runScreener(activeCapTab, true)}>Retry</Button>
+        </Card>
+      ) : currentPicks && currentPicks.length > 0 ? (
+        <>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {currentPicks.map((stock) => (
+              <StockCard
+                key={stock.ticker}
+                stock={stock}
+                category={activeCapTab}
+                apiKey={apiKey}
+                onAnalyse={(ticker) => onNavigateToResearch?.(ticker)}
+                onGenerateThesis={handleGenerateThesis}
+              />
+            ))}
+          </div>
+          <p className="text-[10px] text-muted-foreground/60 text-right">
+            Scores based on real financial data. Not investment advice. Do your own due diligence.
+          </p>
+        </>
+      ) : currentPicks && currentPicks.length === 0 ? (
+        <Card className="p-8 text-center space-y-2">
+          <Eye className="h-6 w-6 text-muted-foreground/40 mx-auto" />
+          <p className="text-sm text-muted-foreground">No stocks passed the filters for this category right now.</p>
+          <p className="text-xs text-muted-foreground/60">This is intentional — the screener is strict. Try refreshing or check a different category.</p>
+        </Card>
+      ) : (
+        <div className="rounded-2xl border border-dashed border-border p-10 text-center space-y-3">
+          {(() => { const Icon = cfg.icon; return <Icon className="h-8 w-8 text-muted-foreground/30 mx-auto" />; })()}
+          <p className="text-sm font-medium text-muted-foreground">{cfg.label}</p>
+          <p className="text-xs text-muted-foreground/60">{cfg.description}</p>
+          <Button size="sm" onClick={() => runScreener(activeCapTab)} className="gap-1.5 mt-2">
+            <TrendingUp className="h-3.5 w-3.5" />
+            Run Screener
+          </Button>
+        </div>
+      )}
+
+      {/* ── Smart Money section ── */}
+      <section className="space-y-4 border-t border-border pt-6">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Eye className="h-5 w-5 text-primary" />
+            <h2 className="font-display text-xl font-bold">Smart Money</h2>
+            {!apiKey && (
+              <Badge variant="outline" className="text-[10px] text-muted-foreground">Requires Gemini key</Badge>
+            )}
+          </div>
+        </div>
+
         <div className="flex gap-1.5 overflow-x-auto pb-1">
-          {SMART_TABS.map(({ id, label }) => (
-            <button key={id} onClick={() => { setSmartTab(id); loadSmartMoney(id); }}
+          {SMART_TABS.map(({ id, label, icon: Icon }) => (
+            <button key={id}
+              onClick={() => { setSmartTab(id); runSmartMoney(id); }}
               className={cn("flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-medium whitespace-nowrap transition-all shrink-0",
-                smartTab === id ? "border-primary bg-primary/10 text-primary" : "border-border bg-card text-muted-foreground hover:border-primary/30 hover:text-foreground"
-              )}>
+                smartTab === id
+                  ? "border-primary bg-primary/10 text-primary"
+                  : "border-border bg-card text-muted-foreground hover:border-primary/30 hover:text-foreground")}>
+              <Icon className="h-3.5 w-3.5" />
               {label}
-              {!!smartCache[id] && smartTab !== id && <span className="h-1.5 w-1.5 rounded-full bg-primary/50"/>}
+              {smartCache[id] && smartTab !== id && <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />}
             </button>
           ))}
         </div>
+
         <div className="flex items-center justify-between">
           <p className="text-xs text-muted-foreground">
-            {smartTab === "fiidii" && "Stocks where institutions are actively accumulating"}
-            {smartTab === "ace" && "Latest additions by India's ace investors — Kacholia, Kedia, Khanna & more"}
-            {smartTab === "analyst" && "Highest buy-rated stocks from Motilal, Kotak, ICICI Direct"}
+            {smartTab === "fiidii" && "Stocks where foreign & domestic institutions increased holdings last quarter"}
+            {smartTab === "ace" && "Latest portfolio additions by Kacholia, Kedia, Khanna, Agrawal, Veliyath"}
+            {smartTab === "analyst" && "3+ analyst Buy ratings with 20%+ upside from consensus target"}
           </p>
-          <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs" onClick={() => loadSmartMoney(smartTab, true)} disabled={isLoadingSmart}>
-            <RefreshCw className={cn("h-3 w-3", isLoadingSmart && "animate-spin")}/>
-            {isLoadingSmart ? "Loading..." : currentSmart ? "Refresh" : "Load"}
-          </Button>
+          <div className="flex items-center gap-2 shrink-0">
+            {smartTime[smartTab] && (
+              <span className="text-[10px] text-muted-foreground">as of {smartTime[smartTab]}</span>
+            )}
+            <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs"
+              onClick={() => runSmartMoney(smartTab, true)} disabled={isLoadingSmart || !apiKey}>
+              <RefreshCw className={cn("h-3 w-3", isLoadingSmart && "animate-spin")} />
+              {isLoadingSmart ? "Loading..." : currentSmart ? "Refresh" : "Load"}
+            </Button>
+          </div>
         </div>
-        {isLoadingSmart ? <LoadingGrid /> : currentSmart ? (
-          <>
-            <div className="grid gap-3 sm:grid-cols-2">
-              {currentSmart.type === "fiidii" && currentSmart.entries.map((e, i) => <FiiDiiCard key={i} entry={e}/>)}
-              {currentSmart.type === "ace" && currentSmart.entries.map((e, i) => <AceCard key={i} entry={e}/>)}
-              {currentSmart.type === "analyst" && currentSmart.entries.map((e, i) => <AnalystCard key={i} entry={e}/>)}
-            </div>
-            <p className="text-[10px] text-muted-foreground/70 text-right">Generated {currentSmart.generatedAt} · Based on public filings</p>
-          </>
+
+        {isLoadingSmart ? (
+          <LoadingGrid count={3} />
+        ) : currentSmart && currentSmart.length > 0 ? (
+          <div className="grid gap-3 sm:grid-cols-2">
+            {currentSmart.map((entry, i) => (
+              <SmartMoneyCard key={i} entry={entry} onAnalyse={(t) => onNavigateToResearch?.(t)} />
+            ))}
+          </div>
+        ) : currentSmart && currentSmart.length === 0 ? (
+          <Card className="p-6 text-center">
+            <p className="text-sm text-muted-foreground">No data returned. Try refreshing.</p>
+          </Card>
         ) : (
-          <div className="rounded-2xl border border-dashed border-border p-10 text-center space-y-3">
-            <Eye className="h-8 w-8 text-muted-foreground/30 mx-auto"/>
-            <p className="text-sm font-medium text-muted-foreground">
-              {smartTab === "fiidii" && "FII / DII Accumulation Signals"}
-              {smartTab === "ace" && "Ace Investor Portfolio Additions"}
-              {smartTab === "analyst" && "Analyst Consensus Buy Calls"}
+          <div className="rounded-2xl border border-dashed border-border p-8 text-center space-y-2">
+            <Eye className="h-8 w-8 text-muted-foreground/30 mx-auto" />
+            <p className="text-sm text-muted-foreground">
+              {!apiKey
+                ? "Add your Gemini API key in the Research tab to use Smart Money"
+                : "Click Load to fetch the latest smart money signals"}
             </p>
-            <Button size="sm" onClick={() => loadSmartMoney(smartTab)} className="gap-1.5"><Sparkles className="h-3.5 w-3.5"/>Load Data</Button>
+            {apiKey && (
+              <Button size="sm" onClick={() => runSmartMoney(smartTab)} className="gap-1.5 mt-1">
+                <Sparkles className="h-3.5 w-3.5" />
+                Load
+              </Button>
+            )}
           </div>
         )}
       </section>
 
-      <p className="text-[10px] text-muted-foreground/60 leading-relaxed border-t border-border pt-4">
-        ⚠️ AI-generated using live web search. For educational/research purposes only. Not SEBI-registered investment advice. Always do your own due diligence.
+      <p className="text-[10px] text-muted-foreground/50 leading-relaxed border-t border-border pt-4">
+        ⚠️ Screener uses real live financial data from Yahoo Finance. Smart Money uses Gemini AI with Google Search on public filings. This is a personal research tool — not SEBI-registered investment advice. Always do your own due diligence before investing.
       </p>
     </div>
   );
