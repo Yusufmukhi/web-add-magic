@@ -806,21 +806,256 @@ function formatInline(text: string): string {
     .replace(/`(.+?)`/g, "<code class='bg-muted px-1 rounded text-xs font-mono'>$1</code>");
 }
 
-// ─── Streaming call ───────────────────────────────────────────────────────────
 
-async function callGeminiStream(
+// ─── Streaming call — 2-part approach for complete 14-section reports ─────────
+
+const PART1_SYSTEM = `You are Aurum, an elite Indian equity research analyst. You write complete, detailed, institutional-quality research reports on Indian stocks. You NEVER truncate or leave sections incomplete. You search for real data using Google Search.`;
+
+function buildPart1Prompt(stock: string): string {
+  return `Write PART 1 of a complete institutional research report on the NSE/BSE listed stock: ${stock}
+
+Use Google Search to find: current price, last 5-10 years financials, latest quarterly results, latest AGM/concall transcript, promoter data, peer data, auditor reports.
+
+CRITICAL: Write ALL 7 sections below in FULL detail. Do NOT summarize or skip any sub-point.
+
+## 1. 📋 Executive Summary
+- What does this company do? (plain English, not AR copy-paste)
+- Why is the market interested right now?
+- **5 key investment takeaways** — each must be specific and data-backed, not generic
+
+## 2. 🏢 Business Analysis
+- Business model — exactly how does it earn revenue?
+- Revenue segments with % contribution (latest year)
+- Geographic presence — domestic vs export % breakdown
+- Competitive moats (pricing power, switching costs, brand, distribution)
+- Market position — leader / challenger / niche player?
+- Top 3 specific growth drivers for next 3 years
+- Business-specific risks (customer concentration, input cost, seasonality)
+
+## 3. 📊 Financial Analysis (5-10 Year View)
+Use Google Search for data. Present as complete markdown tables:
+
+**P&L Trend:**
+| Year | Revenue (₹Cr) | YoY% | EBITDA (₹Cr) | EBITDA Margin% | PAT (₹Cr) | PAT Margin% | EPS (₹) | EPS Growth% |
+|------|--------------|------|-------------|---------------|----------|------------|--------|------------|
+
+**Balance Sheet & Returns:**
+| Year | Debt (₹Cr) | D/E | Cash (₹Cr) | ROCE% | ROE% | Book Value/Share |
+|------|-----------|-----|-----------|-------|------|-----------------|
+
+**Cash Flow Quality:**
+| Year | CFO (₹Cr) | CFO/PAT% | Capex (₹Cr) | FCF (₹Cr) |
+|------|----------|---------|-----------|----------|
+
+**Working Capital:**
+| Year | Debtor Days | Inventory Days | Payable Days | Cash Conversion Cycle |
+|------|------------|--------------|------------|---------------------|
+
+Summary after tables:
+- Revenue CAGR — 3Y: ___% | 5Y: ___% | 10Y: ___%
+- PAT CAGR — 3Y: ___% | 5Y: ___% | 10Y: ___%
+- Is PAT backed by CFO? Quality of earnings assessment
+- ⚠️ Red flags identified (audit qualifications, RPT, receivables, anything unusual)
+
+## 4. 📣 AGM & Latest Concall
+Search for the most recent concall or AGM:
+- Date and which quarter
+- Management opening — what did they lead with?
+- Specific guidance given: revenue target, margin target, volume target
+- Order book size and timeline
+- Capex: amount, purpose, expected commissioning
+- Top 5 analyst questions and management responses — were they direct or evasive?
+- Management tone: Confident / Cautiously Optimistic / Defensive / Evasive
+- Single most important quote from the concall
+
+## 5. 📁 Annual Report Deep Dive
+Search for latest annual report:
+- Chairman's message — vision vs reality
+- MD&A key strategic points
+- Risks management themselves acknowledge
+- 🚨 Auditor report — any qualifications or emphasis of matter? (flag clearly)
+- Related party transactions — nature and total value
+- Contingent liabilities — any material litigation?
+- Notes to accounts — anything investors typically miss
+
+## 6. 🏭 Industry & Peer Comparison
+
+**Peer Comparison Table:**
+| Company | CMP (₹) | Mkt Cap (₹Cr) | Rev Growth% | EBITDA Margin% | PAT Margin% | ROCE% | ROE% | PE | EV/EBITDA | D/E |
+|---------|---------|-------------|------------|--------------|------------|-------|------|-----|----------|-----|
+
+- Competitive position vs each peer (2-3 sentences each)
+- Market share estimate and whether it's growing or declining
+- Industry TAM and expected growth rate
+- Key regulatory tailwinds / headwinds
+- Who is gaining vs losing market share right now?
+
+## 7. 👤 Management & Governance
+
+**Shareholding Trend (Last 4 Quarters):**
+| Quarter | Promoter% | FII% | DII% | Public% |
+|---------|----------|------|------|--------|
+
+- Promoter background — who are they, first-gen or family business, track record
+- Promoter pledge: ___% (⚠️ flag if >20%)
+- Any SEBI orders, court cases, or governance red flags? (search thoroughly)
+- Capital allocation: dividend history, buybacks, capex discipline
+- Key insider buying/selling in last 12 months
+- **Governance Score: X/10** with reasoning
+- Has management delivered on past guidance? Yes / Partially / No`;
+}
+
+function buildPart2Prompt(stock: string): string {
+  return `Write PART 2 of a complete institutional research report on the NSE/BSE listed stock: ${stock}
+
+Part 1 (sections 1-7) has already been written covering Business, Financials, AGM, Annual Report, Peers, and Governance.
+Now write sections 8-14. Use Google Search for current price and any latest data needed.
+
+CRITICAL: Complete ALL 7 sections in full. Do NOT skip or abbreviate any section.
+
+## 8. 💰 Valuation Analysis
+- Current CMP: ₹___ | Market Cap: ₹___ Cr | Category: Large/Mid/Small cap
+- TTM PE: ___ | Forward PE (FY26E): ___ | PEG Ratio: ___
+- EV/EBITDA: ___ | Price-to-Book: ___ | Price-to-Sales: ___
+
+**Historical Valuation (Last 5 Years):**
+| Metric | Current | 1Y Avg | 3Y Avg | 5Y Avg | 5Y High | 5Y Low |
+|--------|---------|--------|--------|--------|---------|--------|
+| PE | | | | | | |
+| EV/EBITDA | | | | | | |
+
+**Peer Valuation:**
+| Company | PE | EV/EBITDA | P/B | Revenue Growth% | PEG |
+|---------|-----|----------|-----|----------------|-----|
+
+- Earnings-based fair value: FY26E EPS ₹___ × fair PE ___x = fair value ₹___
+- DCF intrinsic value estimate with key assumptions
+- **VERDICT: UNDERVALUED / FAIRLY VALUED / OVERVALUED** — explain clearly
+- Margin of safety at current price: ___%
+- Best entry range for a new investor: ₹___ to ₹___
+
+## 9. 🎯 Investment Thesis
+
+**TOP 5 REASONS TO BUY** (each must include a specific data point):
+1. **[Heading]:** [Explanation with data]
+2. **[Heading]:** [Explanation with data]
+3. **[Heading]:** [Explanation with data]
+4. **[Heading]:** [Explanation with data]
+5. **[Heading]:** [Explanation with data]
+
+**TOP 5 REASONS TO AVOID** (honest, specific — not generic disclaimers):
+1. **[Heading]:** [Explanation with data]
+2. **[Heading]:** [Explanation with data]
+3. **[Heading]:** [Explanation with data]
+4. **[Heading]:** [Explanation with data]
+5. **[Heading]:** [Explanation with data]
+
+## 10. ⚠️ Risk Assessment
+Rate each **Low / Medium / High** with a 2-sentence specific explanation:
+
+| Risk | Rating | Explanation |
+|------|--------|-------------|
+| Industry Risk | | |
+| Regulatory Risk | | |
+| Currency Risk | | |
+| Execution Risk | | |
+| Management/Governance Risk | | |
+| Financial Risk | | |
+| Valuation Risk | | |
+| Competitive Risk | | |
+| Macro Risk | | |
+
+**Overall Risk Rating: LOW / MEDIUM / HIGH**
+Why this overall rating in one sentence.
+
+## 11. 📈 Expected Returns
+
+**Scenario Returns Table:**
+| Scenario | 1Y Target (₹) | 1Y CAGR | 3Y Target (₹) | 3Y CAGR | 5Y Target (₹) | 5Y CAGR | Key Assumption |
+|----------|--------------|---------|--------------|---------|--------------|---------|----------------|
+| Bull Case | | | | | | | |
+| Base Case | | | | | | | |
+| Bear Case | | | | | | | |
+
+For each scenario, explain the one assumption that makes or breaks it.
+
+## 12. 🚪 Exit Strategy
+**Profit booking levels:**
+- Book 25% at ₹___ (___x PE) — why this level?
+- Book 50% at ₹___ (___x PE)
+- Full exit at ₹___ or if these fundamentals break: ___
+
+**Sell immediately (regardless of price) if:**
+1. [specific trigger]
+2. [specific trigger]
+3. [specific trigger]
+4. [specific trigger]
+5. [specific trigger]
+
+**Quarterly monitoring checklist:**
+1. Revenue growth vs guidance (look for ___% minimum)
+2. EBITDA margin (flag if falls below ___%)
+3. Order book additions (flag if <₹___ Cr)
+4. Promoter shareholding (sell if drops below ___%  or pledge rises above ___%)
+5. FII/DII activity direction
+6. Cash conversion cycle (flag if deteriorates beyond ___ days)
+7. Management tone on concall
+8. Any regulatory or SEBI news
+
+Minimum holding period: ___ months | Optimal for base case: ___ years
+
+## 13. 🛒 Buy Decision
+Investing my own money at today's price:
+
+**STRONG BUY / BUY / ACCUMULATE ON DIPS / HOLD / AVOID**
+**Confidence Level: ___%**
+
+- Why this rating in 3 specific sentences
+- What changes this rating: Falls to ₹___ = Strong Buy | Rises above ₹___ = Hold
+- One thing that would make me immediately avoid this stock: ___
+
+## 14. 🏆 Final Fund Manager Verdict
+Investing ₹10 lakh of my own money:
+
+| | Details |
+|---|---|
+| Buy today? | Yes / No / Wait for ₹___ |
+| Amount to invest | ₹___ lakh (___% of portfolio) |
+| Expected in 3Y (base) | ₹___ lakh |
+| Downside in bear case | ₹___ lakh (___% loss) |
+| Holding period | ___ years |
+| Probability beats Nifty | ___% |
+
+---
+## 🎯 FINAL VERDICT
+
+**[STRONG BUY / BUY / ACCUMULATE ON DIPS / HOLD / AVOID]**
+
+| | |
+|---|---|
+| CMP | ₹___ |
+| 12M Target | ₹___ |
+| Upside | ___% |
+| Stop Loss | ₹___ |
+| Confidence | ___% |
+
+**In plain English:** [2-3 sentences as you would explain to a friend whether they should buy this stock, what the upside is, and what the key risk is]`;
+}
+
+async function runStreamingCall(
   apiKey: string,
-  userQuery: string,
-  onChunk: (text: string) => void
+  prompt: string,
+  onChunk: (text: string) => void,
+  prefix = ""
 ): Promise<string> {
   const res = await fetch(GEMINI_STREAM_URL(apiKey), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
-      contents: [{ parts: [{ text: `Analyse this Indian stock and produce a complete institutional research report: ${userQuery}` }] }],
+      system_instruction: { parts: [{ text: PART1_SYSTEM }] },
+      contents: [{ parts: [{ text: prompt }] }],
       tools: [{ google_search: {} }],
-      generationConfig: { temperature: 0.4, maxOutputTokens: 8192, thinkingConfig: { thinkingBudget: 0 } },
+      generationConfig: { temperature: 0.3, maxOutputTokens: 8192, thinkingConfig: { thinkingBudget: 0 } },
     }),
   });
 
@@ -832,7 +1067,7 @@ async function callGeminiStream(
   const reader = res.body?.getReader();
   if (!reader) throw new Error("No response body");
   const decoder = new TextDecoder();
-  let fullText = "", buffer = "";
+  let partText = "", buffer = "";
 
   while (true) {
     const { done, value } = await reader.read();
@@ -847,13 +1082,36 @@ async function callGeminiStream(
       try {
         const parsed = JSON.parse(jsonStr);
         const chunk = extractText(parsed?.candidates?.[0]?.content?.parts);
-        if (chunk) { fullText += chunk; onChunk(fullText); }
+        if (chunk) {
+          partText += chunk;
+          onChunk(prefix + partText);
+        }
       } catch { /* partial json */ }
     }
   }
 
-  if (!fullText) throw new Error("Empty response from Gemini.");
-  return fullText;
+  if (!partText) throw new Error("Empty response from Gemini.");
+  return partText;
+}
+
+async function callGeminiStream(
+  apiKey: string,
+  userQuery: string,
+  onChunk: (text: string) => void
+): Promise<string> {
+  // Part 1: sections 1-7
+  onChunk("⏳ Generating sections 1-7 (Business, Financials, AGM, Peers, Governance)...\n\n");
+  const part1 = await runStreamingCall(apiKey, buildPart1Prompt(userQuery), onChunk, "");
+
+  // Brief pause then part 2
+  onChunk(part1 + "\n\n---\n⏳ Generating sections 8-14 (Valuation, Thesis, Risks, Returns, Verdict)...\n\n");
+  await new Promise((r) => setTimeout(r, 800));
+
+  const part2 = await runStreamingCall(apiKey, buildPart2Prompt(userQuery), (text) => {
+    onChunk(part1 + "\n\n---\n\n" + text);
+  });
+
+  return part1 + "\n\n---\n\n" + part2;
 }
 
 // ─── Non-streaming follow-up ──────────────────────────────────────────────────
@@ -868,7 +1126,6 @@ async function callGeminiFollowUp(apiKey: string, prompt: string): Promise<strin
       generationConfig: { temperature: 0.3, maxOutputTokens: 6000, thinkingConfig: { thinkingBudget: 0 } },
     }),
   });
-
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error((err as { error?: { message?: string } })?.error?.message ?? `HTTP ${res.status}`);
