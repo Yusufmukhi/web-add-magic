@@ -3,7 +3,7 @@ import {
   Sparkles, Search, Copy, AlertTriangle, BarChart2,
   Key, X, ChevronRight, TrendingUp, Users, BookOpen,
   MessageSquare, Building2, Newspaper, Send, Target,
-  DollarSign, ShieldAlert, TrendingDown, FileText,
+  DollarSign, ShieldAlert, TrendingDown, FileText, RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Card } from "@/components/ui/card";
@@ -11,6 +11,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import {
+  getSupabaseConfig, isStale, ageLabel,
+  getResearch, saveResearch,
+} from "@/lib/supabase";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1191,6 +1195,7 @@ export function AIResearchPanel({ prefillTicker, onPrefillConsumed }: AIResearch
   const [currentStock, setCurrentStock] = useState("");
   const [loading, setLoading]       = useState(false);
   const [streamingText, setStreamingText] = useState("");
+  const [cacheAge, setCacheAge]     = useState<string | null>(null); // non-null = served from Supabase cache
 
   const [followUpText, setFollowUpText]   = useState<string | null>(null);
   const [followUpType, setFollowUpType]   = useState<FollowUpType | null>(null);
@@ -1212,10 +1217,12 @@ export function AIResearchPanel({ prefillTicker, onPrefillConsumed }: AIResearch
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prefillTicker]);
 
-  const handleAnalyse = useCallback(async (stockQuery?: string) => {
+  const handleAnalyse = useCallback(async (stockQuery?: string, forceRefresh = false) => {
     const q = (stockQuery ?? query).trim();
     if (!q) { toast.error("Enter a stock name or ticker"); return; }
     if (!apiKey) { toast.error("Add your Gemini API key first"); return; }
+
+    const ticker = q.toUpperCase();
 
     setLoading(true);
     setReport(null);
@@ -1223,16 +1230,43 @@ export function AIResearchPanel({ prefillTicker, onPrefillConsumed }: AIResearch
     setFollowUpText(null);
     setFollowUpType(null);
     setFollowUpLabel("");
-    setCurrentStock(q.toUpperCase());
+    setCurrentStock(ticker);
+    setCacheAge(null);
     setTimeout(() => reportRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
 
+    // 1. Check Supabase cache (skip on forceRefresh)
+    if (!forceRefresh && getSupabaseConfig()) {
+      try {
+        const cached = await getResearch(ticker);
+        if (cached && !isStale(cached.updated_at)) {
+          const age = ageLabel(cached.updated_at);
+          setReport(cached.report);
+          setCacheAge(age);
+          setHistory((prev) => {
+            const filtered = prev.filter((h) => h.query.toLowerCase() !== ticker.toLowerCase());
+            return [{ query: ticker, report: cached.report, timestamp: Date.now() }, ...filtered].slice(0, MAX_HIST);
+          });
+          setLoading(false);
+          toast.success(`Loaded from Supabase cache (${age})`);
+          return;
+        }
+      } catch { /* ignore cache errors, proceed to generate */ }
+    }
+
+    // 2. Generate fresh with Gemini
     try {
       const result = await callGeminiStream(apiKey, q, setStreamingText);
       setStreamingText("");
       setReport(result);
+
+      // 3. Store in Supabase
+      if (getSupabaseConfig()) {
+        await saveResearch(ticker, q, result);
+      }
+
       setHistory((prev) => {
         const filtered = prev.filter((h) => h.query.toLowerCase() !== q.toLowerCase());
-        return [{ query: q.toUpperCase(), report: result, timestamp: Date.now() }, ...filtered];
+        return [{ query: ticker, report: result, timestamp: Date.now() }, ...filtered].slice(0, MAX_HIST);
       });
     } catch (err) {
       toast.error(parseGeminiError(err));
@@ -1279,6 +1313,7 @@ export function AIResearchPanel({ prefillTicker, onPrefillConsumed }: AIResearch
     setFollowUpText(null);
     setFollowUpType(null);
     setFollowUpLabel("");
+    setCacheAge(null);
     setTimeout(() => reportRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
   };
 
@@ -1376,14 +1411,25 @@ export function AIResearchPanel({ prefillTicker, onPrefillConsumed }: AIResearch
                   Streaming...
                 </span>
               )}
+              {cacheAge && !loading && (
+                <span className="flex items-center gap-1 text-[10px] text-muted-foreground bg-muted rounded-full px-2 py-0.5">
+                  📦 Cached {cacheAge}
+                </span>
+              )}
             </div>
             {!loading && (
               <div className="flex gap-1.5">
+                {cacheAge && (
+                  <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs text-primary"
+                    onClick={() => handleAnalyse(currentStock, true)}>
+                    <RefreshCw className="h-3 w-3" /> Refresh
+                  </Button>
+                )}
                 <Button variant="ghost" size="sm" onClick={handleCopy} className="h-7 gap-1 text-xs">
                   <Copy className="h-3 w-3" /> Copy
                 </Button>
                 <Button variant="ghost" size="sm" className="h-7 w-7 p-0"
-                  onClick={() => { setReport(null); setStreamingText(""); setFollowUpText(null); setCurrentStock(""); }}>
+                  onClick={() => { setReport(null); setStreamingText(""); setFollowUpText(null); setCurrentStock(""); setCacheAge(null); }}>
                   <X className="h-3.5 w-3.5" />
                 </Button>
               </div>
