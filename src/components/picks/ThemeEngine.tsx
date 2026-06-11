@@ -17,12 +17,15 @@ import {
   Sun, Shield, Cpu, Train, Droplets, Factory,
   ArrowRight, ChevronDown, ChevronUp, Sparkles,
   AlertTriangle, Info, RefreshCw, ArrowUpRight,
-} from "lucide-react";
-import { toast } from "sonner";
+} from "lucide-react";import { toast } from "sonner";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import {
+  getSupabaseConfig, isStale, ageLabel,
+  getThemeDeepDive, saveThemeDeepDive,
+} from "@/lib/supabase";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -466,9 +469,24 @@ function ThemeCard({ theme, apiKey, onAnalyse }: ThemeCardProps) {
 
   const handleDeepDive = async () => {
     if (!apiKey) { toast.error("Add Gemini API key in Research tab first"); return; }
+
+    // 1. Check Supabase cache
+    const hasSB = !!getSupabaseConfig();
+    if (hasSB) {
+      const cached = await getThemeDeepDive(theme.id);
+      if (cached && !isStale(cached.updated_at)) {
+        setDeepDive(cached.analysis + `\n\n*📦 Cached ${ageLabel(cached.updated_at)} — click "Refresh" to get today's data*`);
+        return;
+      }
+    }
+
     setDeepDiveLoading(true);
     try {
       const result = await geminiThemeDeepDive(apiKey, theme);
+
+      // 2. Store in Supabase
+      if (hasSB) await saveThemeDeepDive(theme.id, result);
+
       setDeepDive(result);
     } catch {
       toast.error("Deep dive failed — check your API key");
@@ -622,10 +640,16 @@ function ThemeCard({ theme, apiKey, onAnalyse }: ThemeCardProps) {
                     <Sparkles className="h-3 w-3 text-primary" />
                     Live Analysis
                   </span>
-                  <button onClick={() => setDeepDive(null)}
-                    className="text-[10px] text-muted-foreground hover:text-foreground transition-colors">
-                    Clear
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => { setDeepDive(null); setTimeout(handleDeepDive, 50); }}
+                      className="text-[10px] text-primary hover:underline transition-colors">
+                      Refresh
+                    </button>
+                    <button onClick={() => setDeepDive(null)}
+                      className="text-[10px] text-muted-foreground hover:text-foreground transition-colors">
+                      Clear
+                    </button>
+                  </div>
                 </div>
                 <div className="rounded-lg bg-muted/30 border border-border p-3 text-xs text-muted-foreground leading-relaxed space-y-1.5">
                   {deepDive.split("\n").filter((l) => l.trim()).map((line, i) => (
@@ -643,9 +667,187 @@ function ThemeCard({ theme, apiKey, onAnalyse }: ThemeCardProps) {
   );
 }
 
+// ─── Live AI Theme Generator ──────────────────────────────────────────────────
+
+interface LiveTheme {
+  headline: string;
+  category: string;
+  trigger: string;
+  magnitude: "High" | "Medium" | "Low";
+  directBeneficiaries: { ticker: string; reason: string }[];
+  indirectBeneficiaries: { ticker: string; reason: string }[];
+  avoid: { ticker: string; reason: string }[];
+  historicalNote: string;
+  timeframe: string;
+}
+
+async function generateLiveThemes(apiKey: string): Promise<LiveTheme[]> {
+  const prompt = `Today is ${new Date().toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" })}. 
+  
+Use Google Search to find the TOP 4 macro/sector events currently happening in Indian markets RIGHT NOW that will have the biggest stock impact in the next 1-6 months. Look for: RBI decisions, government policy announcements, global commodity moves, FII flows, sector-specific news, budget updates, PLI scheme launches, geopolitical triggers.
+
+For each event, identify which NSE-listed Indian stocks benefit directly, benefit indirectly, and should be avoided.
+
+Return ONLY a valid JSON array (no markdown, no backticks):
+[
+  {
+    "headline": "Short title",
+    "category": "Macro|Policy|Sector|Global",
+    "trigger": "Specific event description with data/numbers",
+    "magnitude": "High|Medium|Low",
+    "timeframe": "Immediate (days)|Medium term (3-6 months)|Long term (1-2Y)",
+    "directBeneficiaries": [
+      {"ticker": "NSE_TICKER", "reason": "Specific reason why this stock benefits with data"}
+    ],
+    "indirectBeneficiaries": [
+      {"ticker": "NSE_TICKER", "reason": "Second-order benefit reason"}
+    ],
+    "avoid": [
+      {"ticker": "NSE_TICKER", "reason": "Why this stock gets hurt"}
+    ],
+    "historicalNote": "Historical precedent from Indian markets"
+  }
+]
+
+Rules:
+- Each event must be ACTUALLY HAPPENING today — not hypothetical
+- Give 3-4 direct beneficiaries, 3-4 indirect, 2-3 to avoid per theme
+- All tickers must be valid NSE tickers
+- Use real current data (crude price, RBI rate, etc.)`;
+
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        tools: [{ google_search: {} }],
+        generationConfig: { temperature: 0.2, maxOutputTokens: 3000, thinkingConfig: { thinkingBudget: 0 } },
+      }),
+    }
+  );
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = await res.json();
+  const parts = (data as { candidates?: Array<{ content?: { parts?: Array<{ text?: string; thought?: boolean }> } }> })
+    ?.candidates?.[0]?.content?.parts ?? [];
+  const text = parts.filter((p) => typeof p.text === "string" && !p.thought).map((p) => p.text as string).join("");
+  const clean = text.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
+  const start = clean.indexOf("["); const end = clean.lastIndexOf("]");
+  if (start === -1 || end === -1) throw new Error("No JSON array in response");
+  return JSON.parse(clean.slice(start, end + 1)) as LiveTheme[];
+}
+
+// ─── Live Theme Card ───────────────────────────────────────────────────────────
+
+function LiveThemeCard({ theme, onAnalyse }: { theme: LiveTheme; onAnalyse: (ticker: string) => void }) {
+  const [expanded, setExpanded] = useState(false);
+  const impactBadge = {
+    High: "bg-red-500/15 text-red-600 dark:text-red-400",
+    Medium: "bg-amber-500/15 text-amber-600 dark:text-amber-400",
+    Low: "bg-muted text-muted-foreground",
+  }[theme.magnitude];
+
+  return (
+    <Card className="overflow-hidden hover:border-primary/30 transition-colors border-primary/20">
+      <button className="w-full p-4 text-left" onClick={() => setExpanded(!expanded)}>
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-start gap-3 min-w-0">
+            <div className="mt-0.5 shrink-0 rounded-lg p-2 bg-primary/10">
+              <Zap className="h-4 w-4 text-primary" />
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-semibold text-sm text-foreground">{theme.headline}</span>
+                <span className="text-[10px] text-muted-foreground bg-muted rounded-full px-2 py-0.5">{theme.category}</span>
+                <span className={cn("text-[10px] font-semibold rounded-full px-2 py-0.5", impactBadge)}>{theme.magnitude} Impact</span>
+                <span className="text-[10px] bg-primary/10 text-primary rounded-full px-2 py-0.5 font-medium">🔴 LIVE</span>
+              </div>
+              <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{theme.trigger}</p>
+            </div>
+          </div>
+          {expanded ? <ChevronUp className="h-4 w-4 text-muted-foreground shrink-0" /> : <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />}
+        </div>
+      </button>
+
+      {expanded && (
+        <div className="px-4 pb-4 space-y-4 border-t border-border">
+          <div className="flex items-center gap-2 text-xs pt-3">
+            <span className="text-muted-foreground">⏱ Timeline:</span>
+            <span className="text-foreground font-medium">{theme.timeframe}</span>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="space-y-2">
+              <div className="flex items-center gap-1.5">
+                <div className="h-2 w-2 rounded-full bg-emerald-500" />
+                <span className="text-[11px] font-semibold text-foreground uppercase tracking-wide">Direct Beneficiaries</span>
+              </div>
+              {theme.directBeneficiaries.map((s) => (
+                <div key={s.ticker} className="rounded-lg bg-emerald-500/5 border border-emerald-500/15 p-2.5 space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono font-bold text-xs text-emerald-600 dark:text-emerald-400">{s.ticker}</span>
+                    <button onClick={() => onAnalyse(s.ticker)} className="flex items-center gap-0.5 text-[10px] text-primary hover:underline">
+                      Report <ArrowUpRight className="h-2.5 w-2.5" />
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground leading-relaxed">{s.reason}</p>
+                </div>
+              ))}
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-center gap-1.5">
+                <div className="h-2 w-2 rounded-full bg-blue-500" />
+                <span className="text-[11px] font-semibold text-foreground uppercase tracking-wide">Indirect / 2nd Order</span>
+              </div>
+              {theme.indirectBeneficiaries.map((s) => (
+                <div key={s.ticker} className="rounded-lg bg-blue-500/5 border border-blue-500/15 p-2.5 space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono font-bold text-xs text-blue-600 dark:text-blue-400">{s.ticker}</span>
+                    <button onClick={() => onAnalyse(s.ticker)} className="flex items-center gap-0.5 text-[10px] text-primary hover:underline">
+                      Report <ArrowUpRight className="h-2.5 w-2.5" />
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground leading-relaxed">{s.reason}</p>
+                </div>
+              ))}
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-center gap-1.5">
+                <div className="h-2 w-2 rounded-full bg-red-500" />
+                <span className="text-[11px] font-semibold text-foreground uppercase tracking-wide">Avoid / Hurt By This</span>
+              </div>
+              {theme.avoid.map((s) => (
+                <div key={s.ticker} className="rounded-lg bg-red-500/5 border border-red-500/15 p-2.5 space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono font-bold text-xs text-red-600 dark:text-red-400">{s.ticker}</span>
+                    <button onClick={() => onAnalyse(s.ticker)} className="flex items-center gap-0.5 text-[10px] text-primary hover:underline">
+                      Report <ArrowUpRight className="h-2.5 w-2.5" />
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground leading-relaxed">{s.reason}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {theme.historicalNote && (
+            <div className="flex items-start gap-2 rounded-lg bg-muted/50 p-3">
+              <Info className="h-3.5 w-3.5 text-muted-foreground shrink-0 mt-0.5" />
+              <p className="text-[11px] text-muted-foreground leading-relaxed">
+                <strong className="text-foreground">Historical precedent:</strong> {theme.historicalNote}
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 // ─── Main ThemeEngine component ───────────────────────────────────────────────
 
-type CategoryFilter = "All" | "Macro" | "Sector" | "Policy" | "Global";
+type CategoryFilter = "All" | "Live AI" | "Macro" | "Sector" | "Policy" | "Global";
 
 interface ThemeEngineProps {
   apiKey: string;
@@ -656,7 +858,29 @@ export function ThemeEngine({ apiKey, onNavigateToResearch }: ThemeEngineProps) 
   const [filter, setFilter] = useState<CategoryFilter>("All");
   const [search, setSearch] = useState("");
 
+  // Live AI themes state
+  const [liveThemes, setLiveThemes] = useState<LiveTheme[]>([]);
+  const [liveLoading, setLiveLoading] = useState(false);
+  const [liveTime, setLiveTime] = useState<string | null>(null);
+
+  const handleGenerateLiveThemes = async (force = false) => {
+    if (!apiKey) { toast.error("Add Gemini API key to generate live themes"); return; }
+    if (!force && liveThemes.length > 0) { setFilter("Live AI"); return; }
+    setLiveLoading(true);
+    setFilter("Live AI");
+    try {
+      const themes = await generateLiveThemes(apiKey);
+      setLiveThemes(themes);
+      setLiveTime(new Date().toLocaleTimeString("en-IN"));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to generate live themes");
+    } finally {
+      setLiveLoading(false);
+    }
+  };
+
   const filtered = THEMES.filter((t) => {
+    if (filter === "Live AI") return false;
     const matchCat = filter === "All" || t.category === filter;
     const q = search.toLowerCase();
     const matchSearch = !q || t.headline.toLowerCase().includes(q) ||
@@ -666,7 +890,7 @@ export function ThemeEngine({ apiKey, onNavigateToResearch }: ThemeEngineProps) 
     return matchCat && matchSearch;
   });
 
-  const categories: CategoryFilter[] = ["All", "Macro", "Policy", "Sector", "Global"];
+  const categories: CategoryFilter[] = ["All", "Live AI", "Macro", "Policy", "Sector", "Global"];
 
   return (
     <section className="space-y-4">
@@ -676,54 +900,131 @@ export function ThemeEngine({ apiKey, onNavigateToResearch }: ThemeEngineProps) 
           <Zap className="h-5 w-5 text-primary" />
           <h2 className="font-display text-xl font-bold">Theme Impact Engine</h2>
         </div>
-        <Badge variant="outline" className="text-[10px]">{THEMES.length} themes</Badge>
+        <Badge variant="outline" className="text-[10px]">{THEMES.length} curated + AI live</Badge>
       </div>
 
       <p className="text-xs text-muted-foreground">
-        If a macro event or sector trigger fires — see exactly who benefits (direct & 2nd order) and who gets hurt. Click any theme to expand. Use Live Deep Dive to check if it's active right now.
+        If a macro event or sector trigger fires — see exactly who benefits (direct & 2nd order) and who gets hurt. Use <strong className="text-foreground">Live AI Themes</strong> to get Gemini-generated themes based on what's actually happening in markets today.
       </p>
 
-      {/* Filters */}
+      {/* Filters + Live button */}
       <div className="flex items-center gap-2 flex-wrap">
-        <div className="flex gap-1">
+        <div className="flex gap-1 flex-wrap">
           {categories.map((cat) => (
             <button key={cat}
-              onClick={() => setFilter(cat)}
+              onClick={() => cat === "Live AI" ? handleGenerateLiveThemes() : setFilter(cat)}
               className={cn("rounded-full border px-3 py-1 text-xs font-medium transition-all",
                 filter === cat
-                  ? "border-primary bg-primary/10 text-primary"
-                  : "border-border text-muted-foreground hover:text-foreground hover:border-primary/30")}>
-              {cat}
+                  ? cat === "Live AI"
+                    ? "border-primary bg-primary/20 text-primary"
+                    : "border-primary bg-primary/10 text-primary"
+                  : cat === "Live AI"
+                    ? "border-primary/40 text-primary hover:bg-primary/10"
+                    : "border-border text-muted-foreground hover:text-foreground hover:border-primary/30")}>
+              {cat === "Live AI" ? (
+                <span className="flex items-center gap-1">
+                  <span className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />
+                  Live AI Themes
+                </span>
+              ) : cat}
             </button>
           ))}
         </div>
-        <input
-          placeholder="Search theme or ticker..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="flex-1 min-w-[140px] rounded-full border border-border bg-background px-3 py-1 text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-primary transition-colors"
-        />
-      </div>
-
-      {/* Theme cards */}
-      <div className="space-y-2">
-        {filtered.map((theme) => (
-          <ThemeCard
-            key={theme.id}
-            theme={theme}
-            apiKey={apiKey}
-            onAnalyse={onNavigateToResearch}
+        {filter !== "Live AI" && (
+          <input
+            placeholder="Search theme or ticker..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="flex-1 min-w-[140px] rounded-full border border-border bg-background px-3 py-1 text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-primary transition-colors"
           />
-        ))}
-        {filtered.length === 0 && (
-          <div className="rounded-2xl border border-dashed border-border p-8 text-center">
-            <p className="text-sm text-muted-foreground">No themes match "{search}"</p>
-          </div>
         )}
       </div>
 
+      {/* Live AI Themes section */}
+      {filter === "Live AI" && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="h-2 w-2 rounded-full bg-primary animate-pulse" />
+              <span className="text-xs font-medium text-foreground">
+                AI-generated themes based on today's market events
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              {liveTime && <span className="text-[10px] text-muted-foreground">{liveTime}</span>}
+              <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs"
+                onClick={() => handleGenerateLiveThemes(true)} disabled={liveLoading || !apiKey}>
+                <RefreshCw className={cn("h-3 w-3", liveLoading && "animate-spin")} />
+                {liveLoading ? "Searching markets..." : "Refresh"}
+              </Button>
+            </div>
+          </div>
+
+          {!apiKey && (
+            <Card className="p-4 border-dashed text-center space-y-1">
+              <p className="text-sm text-muted-foreground">Add Gemini API key in Research tab to generate live themes</p>
+            </Card>
+          )}
+
+          {liveLoading && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <div className="h-3 w-3 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                Gemini is searching today's market news to identify active themes...
+              </div>
+              {[1, 2, 3].map((i) => (
+                <Card key={i} className="p-4 animate-pulse space-y-2">
+                  <div className="h-4 w-48 rounded bg-muted" />
+                  <div className="h-3 w-full rounded bg-muted" />
+                </Card>
+              ))}
+            </div>
+          )}
+
+          {!liveLoading && liveThemes.length > 0 && (
+            <div className="space-y-2">
+              {liveThemes.map((t, i) => (
+                <LiveThemeCard key={i} theme={t} onAnalyse={onNavigateToResearch} />
+              ))}
+              <p className="text-[10px] text-muted-foreground/60">
+                Gemini-generated using live Google Search · Refresh to get the latest · {liveTime}
+              </p>
+            </div>
+          )}
+
+          {!liveLoading && liveThemes.length === 0 && apiKey && (
+            <div className="rounded-2xl border border-dashed border-primary/30 p-10 text-center space-y-3">
+              <Zap className="h-8 w-8 text-primary/30 mx-auto" />
+              <p className="text-sm text-muted-foreground">Generate AI themes based on today's market events</p>
+              <Button size="sm" onClick={() => handleGenerateLiveThemes(true)} className="gap-1.5">
+                <Sparkles className="h-3.5 w-3.5" /> Generate Live Themes
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Static theme cards */}
+      {filter !== "Live AI" && (
+        <div className="space-y-2">
+          {filtered.map((theme) => (
+            <ThemeCard
+              key={theme.id}
+              theme={theme}
+              apiKey={apiKey}
+              onAnalyse={onNavigateToResearch}
+            />
+          ))}
+          {filtered.length === 0 && (
+            <div className="rounded-2xl border border-dashed border-border p-8 text-center">
+              <p className="text-sm text-muted-foreground">No themes match "{search}"</p>
+            </div>
+          )}
+        </div>
+      )}
+
       <p className="text-[10px] text-muted-foreground/50">
-        Theme mappings based on historical Indian market behavior. Not investment advice. Always verify before acting.
+        Static themes based on historical Indian market behavior. Live AI themes use Gemini + Google Search for today's market events. Deep dives cached in Supabase for 7 days. Not investment advice. Always verify before acting.
       </p>
     </section>
   );
