@@ -20,6 +20,11 @@ import { cn } from "@/lib/utils";
 import { fetchQuote } from "@/services/api";
 import type { StockQuote } from "@/types/stock.types";
 import { ThemeEngine } from "./ThemeEngine";
+import {
+  getSupabaseConfig, isStale, ageLabel,
+  getThesis, saveThesis,
+  getSmartMoney, saveSmartMoney,
+} from "@/lib/supabase";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -213,18 +218,18 @@ Write a concise investment thesis. Format exactly:
 
 async function fetchSmartMoneyData(apiKey: string, tab: SmartTab): Promise<SmartMoneyEntry[]> {
   const prompts: Record<SmartTab, string> = {
-    fiidii: `Search NSE/BSE shareholding disclosures for Indian stocks where FII holding increased more than 1% QoQ in the most recent quarter. Also include stocks where both FII AND DII are simultaneously buying.
+    fiidii: `Search NSE/BSE shareholding disclosures for Indian stocks where FII holding increased more than 0.5% QoQ in the most recent quarter. Also include stocks where both FII AND DII are simultaneously buying. Include small and mid cap stocks where smart money is quietly accumulating.
 Return ONLY a valid JSON array, no markdown:
 [{"ticker":"NSE_TICKER","name":"Company Name","detail":"FII +1.8% QoQ to 24.3%","signal":"FII Accumulation","extra":"DII also added 0.5%","type":"fiidii"}]
-Give 6 entries with exact NSE tickers.`,
-    ace: `Search latest quarterly portfolio filings for Indian ace investors: Ashish Kacholia, Vijay Kedia, Dolly Khanna, Mukul Agrawal, Porinju Veliyath, Rekha Jhunjhunwala. Find stocks where any INCREASED stake in the most recent quarter.
+Give exactly 12 entries with exact NSE tickers. Prioritise stocks with meaningful FII/DII increases, not token additions.`,
+    ace: `Search latest quarterly portfolio filings for Indian ace investors: Ashish Kacholia, Vijay Kedia, Dolly Khanna, Mukul Agrawal, Porinju Veliyath, Rekha Jhunjhunwala, Sunil Singhania, Ramesh Damani. Find stocks where any ace investor INCREASED stake in the most recent quarter or took a new position.
 Return ONLY a valid JSON array, no markdown:
 [{"ticker":"NSE_TICKER","name":"Company Name","detail":"Ashish Kacholia increased to 3.2% (+0.4% QoQ)","signal":"Ace Investor Adding","extra":"Known for niche manufacturing plays","type":"ace"}]
-Give 6 entries with exact NSE tickers.`,
-    analyst: `Search for Indian stocks with the most Buy/Strong Buy ratings from Motilal Oswal, Kotak, ICICI Direct, Nuvama, Emkay, JM Financial in the last 30 days. Find stocks with 3+ Buy ratings and upside >20%.
+Give exactly 12 entries with exact NSE tickers. Include a mix of different investors.`,
+    analyst: `Search for Indian stocks with the most Buy/Strong Buy ratings from Motilal Oswal, Kotak, ICICI Direct, Nuvama, Emkay, JM Financial, Axis Securities, HDFC Securities in the last 30 days. Include stocks with 3+ Buy ratings and upside >15%. Cover mid and small caps too, not just large caps.
 Return ONLY a valid JSON array, no markdown:
 [{"ticker":"NSE_TICKER","name":"Company Name","detail":"4 Buy ratings — avg target ₹850 (+28% upside)","signal":"Strong Analyst Consensus","extra":"Motilal Oswal initiated with Buy, target ₹900","type":"analyst"}]
-Give 6 entries with exact NSE tickers.`,
+Give exactly 12 entries with exact NSE tickers. Prioritise fresh ratings from the last 2 weeks.`,
   };
 
   const res = await fetch(GEMINI_URL(apiKey), {
@@ -250,12 +255,12 @@ Give 6 entries with exact NSE tickers.`,
 
 const CAP_CONFIG: Record<CapCategory, {
   label: string; icon: React.ElementType; description: string;
-  horizon: string; minScore: number; topN: number;
+  horizon: string; minScore: number;
 }> = {
-  largecap: { label: "Large Cap Recovery", icon: Building2, description: "Quality large caps fallen 20%+ from highs — strong fundamentals screened", horizon: "6–18 months", minScore: 40, topN: 5 },
-  midcap:   { label: "Mid Cap Compounders", icon: Layers,   description: "High-ROE, high-growth mid caps on path to become large caps", horizon: "2–4 years", minScore: 45, topN: 5 },
-  smallcap: { label: "Small Cap Multibaggers", icon: Zap,   description: "Sector-boom small caps with 3–5x potential — real financials screened", horizon: "2–3 years", minScore: 40, topN: 5 },
-  sme:      { label: "SME / Emerging", icon: Gem,           description: "High-growth emerging companies in future-tech sectors", horizon: "5–7 years", minScore: 30, topN: 5 },
+  largecap: { label: "Large Cap Recovery", icon: Building2, description: "Quality large caps fallen 20%+ from highs — strong fundamentals screened", horizon: "6–18 months", minScore: 40 },
+  midcap:   { label: "Mid Cap Compounders", icon: Layers,   description: "High-ROE, high-growth mid caps on path to become large caps", horizon: "2–4 years", minScore: 45 },
+  smallcap: { label: "Small Cap Multibaggers", icon: Zap,   description: "Sector-boom small caps with 3–5x potential — real financials screened", horizon: "2–3 years", minScore: 40 },
+  sme:      { label: "SME / Emerging", icon: Gem,           description: "High-growth emerging companies in future-tech sectors", horizon: "5–7 years", minScore: 30 },
 };
 
 // ─── Stock card ───────────────────────────────────────────────────────────────
@@ -482,8 +487,7 @@ export function PicksPanel({ onNavigateToResearch }: PicksPanelProps) {
           return { ticker: q.ticker.replace(".NS", ""), quote: q, score, scoreBreakdown: breakdown, fallFromHigh };
         })
         .filter((s) => s.score >= config.minScore)
-        .sort((a, b) => b.score - a.score)
-        .slice(0, config.topN);
+        .sort((a, b) => b.score - a.score);
 
       if (scored.length === 0) setPicksError("No stocks passed the screener filters. The screener is intentionally strict — try refreshing or check another category.");
       setPicksCache((prev) => ({ ...prev, [category]: scored }));
@@ -501,6 +505,29 @@ export function PicksPanel({ onNavigateToResearch }: PicksPanelProps) {
     const stock = allPicks.find((s) => s?.ticker === ticker);
     if (!stock) return;
 
+    // 1. Check Supabase cache first
+    const hasSB = !!getSupabaseConfig();
+    if (hasSB) {
+      const cached = await getThesis(ticker);
+      if (cached && !isStale(cached.updated_at)) {
+        // Serve from cache
+        const freshLabel = ageLabel(cached.updated_at);
+        setPicksCache((prev) => {
+          const updated = { ...prev };
+          for (const cat of Object.keys(updated) as CapCategory[]) {
+            updated[cat] = updated[cat]?.map((s) =>
+              s.ticker === ticker
+                ? { ...s, thesis: cached.thesis + `\n\n*📦 Cached ${freshLabel} — click refresh to regenerate*`, thesisLoading: false }
+                : s
+            );
+          }
+          return updated;
+        });
+        return;
+      }
+    }
+
+    // 2. Mark as loading
     setPicksCache((prev) => {
       const updated = { ...prev };
       for (const cat of Object.keys(updated) as CapCategory[]) {
@@ -511,6 +538,10 @@ export function PicksPanel({ onNavigateToResearch }: PicksPanelProps) {
 
     try {
       const thesis = await generateThesis(apiKey, ticker, stock.quote, activeCapTab);
+
+      // 3. Store in Supabase
+      if (hasSB) await saveThesis(ticker, activeCapTab, thesis);
+
       setPicksCache((prev) => {
         const updated = { ...prev };
         for (const cat of Object.keys(updated) as CapCategory[]) {
@@ -532,10 +563,31 @@ export function PicksPanel({ onNavigateToResearch }: PicksPanelProps) {
 
   const runSmartMoney = useCallback(async (tab: SmartTab, force = false) => {
     if (!apiKey) { toast.error("Add Gemini API key in the Research tab to use Smart Money"); return; }
-    if (!force && smartCache[tab]) return;
+
+    // 1. Check Supabase cache (unless forced refresh)
+    if (!force) {
+      const hasSB = !!getSupabaseConfig();
+      if (hasSB) {
+        const cached = await getSmartMoney(tab);
+        if (cached && !isStale(cached.updated_at)) {
+          try {
+            const entries = JSON.parse(cached.entries_json) as SmartMoneyEntry[];
+            setSmartCache((prev) => ({ ...prev, [tab]: entries }));
+            setSmartTime((prev) => ({ ...prev, [tab]: `Cached ${ageLabel(cached.updated_at)}` }));
+            return;
+          } catch { /* ignore parse error, fall through to fresh fetch */ }
+        }
+      }
+      if (smartCache[tab]) return;
+    }
+
     setSmartLoading(tab);
     try {
       const entries = await fetchSmartMoneyData(apiKey, tab);
+
+      // 2. Store in Supabase
+      if (getSupabaseConfig()) await saveSmartMoney(tab, entries);
+
       setSmartCache((prev) => ({ ...prev, [tab]: entries }));
       setSmartTime((prev) => ({ ...prev, [tab]: new Date().toLocaleTimeString("en-IN") }));
     } catch (err) {
@@ -594,7 +646,7 @@ export function PicksPanel({ onNavigateToResearch }: PicksPanelProps) {
             <div className="flex items-start gap-2">
               <Info className="h-3.5 w-3.5 text-muted-foreground shrink-0 mt-0.5" />
               <p className="text-[11px] text-muted-foreground leading-relaxed">
-                <strong className="text-foreground">Real screener:</strong> Fetches live NSE data for {Object.values(UNIVERSES).reduce((a, b) => a + b.length, 0)} curated stocks. Scores on real metrics — ROE, margins, PE, 52W fall, revenue growth. Stock selection is 100% data-driven. AI thesis is optional and generated separately.
+                <strong className="text-foreground">Real screener:</strong> Fetches live NSE data for {Object.values(UNIVERSES).reduce((a, b) => a + b.length, 0)} curated stocks. Scores on real metrics — ROE, margins, PE, 52W fall, revenue growth. <strong className="text-foreground">Shows ALL stocks that pass the score threshold</strong> — no artificial top-5 cap. AI thesis is optional, generated & cached in Supabase.
               </p>
             </div>
           </Card>
@@ -617,7 +669,7 @@ export function PicksPanel({ onNavigateToResearch }: PicksPanelProps) {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-xs text-muted-foreground">{cfg.description}</p>
-              <p className="text-[10px] text-muted-foreground/60">Horizon: {cfg.horizon} · Universe: {UNIVERSES[activeCapTab].length} stocks · Min score: {cfg.minScore}</p>
+              <p className="text-[10px] text-muted-foreground/60">Horizon: {cfg.horizon} · Universe: {UNIVERSES[activeCapTab].length} stocks · Min score: {cfg.minScore} · Showing all qualifiers</p>
             </div>
             <div className="flex items-center gap-2 shrink-0">
               {picksTime[activeCapTab] && <span className="text-[10px] text-muted-foreground">{picksTime[activeCapTab]}</span>}
