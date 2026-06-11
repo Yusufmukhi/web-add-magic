@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { toast } from "sonner";
-import { Download, Upload, Trash2, ListX, AlertTriangle, Pencil, Check, X, Sun, Moon, Monitor } from "lucide-react";
+import { Download, Upload, Trash2, ListX, AlertTriangle, Pencil, Check, X, Sun, Moon, Monitor, Database, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,6 +12,7 @@ import { SoldStocksPanel } from "@/components/sold/SoldStocksPanel";
 import { useTheme } from "@/hooks/useTheme";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
 import { formatINR } from "@/utils/formatters";
+import { getSupabaseConfig, saveSupabaseConfig, clearSupabaseConfig } from "@/lib/supabase";
 
 export interface BackupShape {
   version: 1;
@@ -61,6 +62,25 @@ export function SettingsPanel({
   // Broker info stored locally
   const [brokerName, setBrokerName] = useLocalStorage<string>("broker_name", "");
   const [dematAccount, setDematAccount] = useLocalStorage<string>("demat_account", "");
+
+  // Supabase config
+  const existingSB = getSupabaseConfig();
+  const [sbUrl, setSbUrl] = useState(existingSB?.url ?? "");
+  const [sbKey, setSbKey] = useState(existingSB?.anonKey ?? "");
+  const [sbConnected, setSbConnected] = useState(!!existingSB);
+
+  const handleSaveSupabase = () => {
+    if (!sbUrl.trim() || !sbKey.trim()) { toast.error("Enter both Supabase URL and anon key"); return; }
+    saveSupabaseConfig(sbUrl.trim(), sbKey.trim());
+    setSbConnected(true);
+    toast.success("Supabase connected! Research data will now be cached for 7 days.");
+  };
+
+  const handleDisconnectSupabase = () => {
+    clearSupabaseConfig();
+    setSbUrl(""); setSbKey(""); setSbConnected(false);
+    toast.success("Supabase disconnected");
+  };
 
   const handleExport = () => {
     const data: BackupShape = {
@@ -306,6 +326,62 @@ export function SettingsPanel({
               <Trash2 className="h-4 w-4" /> Reset portfolio
             </Button>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Supabase Cloud Cache */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="font-display flex items-center gap-2">
+            <Database className="h-4 w-4 text-primary" />
+            Supabase Cloud Cache
+            {sbConnected && <span className="text-[10px] bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 rounded-full px-2 py-0.5 font-medium">Connected</span>}
+          </CardTitle>
+          <CardDescription>
+            Cache AI research reports, stock thesis, smart money data, and theme deep dives for 7 days. Data is stored in your own Supabase project — free tier is more than enough.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {sbConnected ? (
+            <div className="space-y-3">
+              <div className="rounded-lg bg-emerald-500/5 border border-emerald-500/20 p-3 text-xs text-muted-foreground space-y-1">
+                <p className="font-medium text-foreground">✅ Supabase connected</p>
+                <p>Research reports auto-cached · Smart Money cached · Theme deep dives cached</p>
+                <p>Cache TTL: 7 days · On search: Supabase first, Gemini only if cache is stale/missing</p>
+              </div>
+              <Button variant="outline" size="sm" className="gap-1.5 text-xs text-destructive border-destructive/30 hover:bg-destructive/5"
+                onClick={handleDisconnectSupabase}>
+                Disconnect Supabase
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground space-y-1.5">
+                <p className="font-medium text-foreground">Setup (2 minutes, free):</p>
+                <ol className="list-decimal list-inside space-y-1">
+                  <li>Go to <a href="https://supabase.com" target="_blank" rel="noopener noreferrer" className="text-primary underline inline-flex items-center gap-0.5">supabase.com <ExternalLink className="h-2.5 w-2.5" /></a> → New project</li>
+                  <li>Copy your <strong className="text-foreground">Project URL</strong> from Settings → API</li>
+                  <li>Copy your <strong className="text-foreground">anon / public key</strong></li>
+                  <li>Run the SQL from <code className="bg-muted px-1 rounded">src/lib/supabase.ts</code> in SQL Editor</li>
+                </ol>
+              </div>
+              <div className="grid gap-2">
+                <div className="space-y-1">
+                  <Label className="text-xs">Project URL</Label>
+                  <Input placeholder="https://xyzxyz.supabase.co" value={sbUrl}
+                    onChange={(e) => setSbUrl(e.target.value)} className="text-xs font-mono" />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Anon / Public Key</Label>
+                  <Input placeholder="eyJhbGciOiJI..." value={sbKey} type="password"
+                    onChange={(e) => setSbKey(e.target.value)} className="text-xs font-mono" />
+                </div>
+              </div>
+              <Button size="sm" className="gap-1.5" onClick={handleSaveSupabase}>
+                <Database className="h-3.5 w-3.5" /> Connect Supabase
+              </Button>
+            </div>
+          )}
         </CardContent>
       </Card>
 
