@@ -205,3 +205,28 @@ export async function getThemeDeepDive(themeId: string): Promise<CachedThemeDeep
 export async function saveThemeDeepDive(themeId: string, analysis: string): Promise<void> {
   await dbUpsert("theme_deepdives", { theme_id: themeId, analysis });
 }
+
+// ─── Stock universe cache (24-hour TTL — refreshes daily) ─────────────────────
+// Stores Gemini-generated stock universes so we don't call Gemini every page load.
+
+const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+
+export function isUniverseStale(updatedAt: string): boolean {
+  return Date.now() - new Date(updatedAt).getTime() > ONE_DAY_MS;
+}
+
+export async function getUniverse(category: string): Promise<string[] | null> {
+  const cfg = getSupabaseConfig();
+  if (!cfg) return null;
+  try {
+    const result = await dbGet<{ category: string; tickers_json: string; updated_at: string }>(
+      "stock_universe", { category }
+    );
+    if (!result || isUniverseStale(result.updated_at)) return null;
+    return JSON.parse(result.tickers_json) as string[];
+  } catch { return null; }
+}
+
+export async function saveUniverse(category: string, tickers: string[]): Promise<void> {
+  await dbUpsert("stock_universe", { category, tickers_json: JSON.stringify(tickers) });
+}
