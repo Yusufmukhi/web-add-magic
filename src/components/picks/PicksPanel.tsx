@@ -254,85 +254,74 @@ Give exactly 12 entries with exact NSE tickers. Prioritise fresh ratings from th
 
 // ─── Dynamic stock universe via Gemini (replaces hardcoded UNIVERSES) ─────────
 
-const UNIVERSE_DESCRIPTIONS: Record<CapCategory, string> = {
-  largecap: "Nifty 50 and Nifty Next 50 large cap Indian stocks (market cap above ₹20,000 Cr). Include blue-chip companies with strong fundamentals, recent earnings momentum, or sector tailwinds. Cover banking, IT, pharma, FMCG, energy, auto sectors.",
-  midcap: "Nifty Midcap 150 Indian stocks (market cap ₹5,000–20,000 Cr). Include high-growth companies in capital goods, chemicals, healthcare, consumer, EMS, defence, infrastructure. Companies that could become large caps in 3-5 years.",
-  smallcap: "NSE-listed small cap Indian stocks (market cap ₹500–5,000 Cr). Include emerging companies in niche manufacturing, specialty chemicals, defence supply chain, IT services, retail, renewable energy with strong revenue growth.",
-  sme: "NSE SME board and recently listed Indian companies (IPO in last 3 years). Focus on emerging sectors: EV components, defence electronics, speciality chemicals, SaaS, healthcare diagnostics, renewable energy. High growth, small base.",
+// ─── Gemini picks 15 stocks directly ─────────────────────────────────────────
+// No "universe" concept. Gemini searches and selects 15 best stocks.
+// Results cached in Supabase for 24h so Gemini isn't called every page load.
+
+const CATEGORY_PROMPT: Record<CapCategory, string> = {
+  largecap: "large cap Indian stocks (Nifty 50 / Nifty Next 50, market cap above ₹20,000 Cr)",
+  midcap:   "mid cap Indian stocks (Nifty Midcap 150, market cap ₹5,000–20,000 Cr)",
+  smallcap: "small cap Indian stocks (market cap ₹500–5,000 Cr, NSE-listed)",
+  sme:      "SME and recently listed Indian stocks (NSE SME board, IPO in last 3 years, high-growth sectors)",
 };
 
-async function fetchDynamicUniverse(apiKey: string, category: CapCategory): Promise<string[]> {
-  // ── Step 1: Search for relevant stocks — free text ─────────────────────────
+async function getGeminiPicks(apiKey: string, category: CapCategory): Promise<string[]> {
+  // Step 1 — Gemini searches and picks 15 stocks (free text — no JSON)
   const r1 = await fetch(GEMINI_URL(apiKey), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      contents: [{
-        parts: [{ text: `Search NSE India market data, Screener.in, and financial news to find 35 NSE-listed Indian stocks currently relevant for this category:
+      contents: [{ parts: [{ text:
+        `Search Screener.in, Moneycontrol, NSE India, and recent financial news to find the 15 best ${CATEGORY_PROMPT[category]} to buy or watch right now.
 
-CATEGORY: ${category.toUpperCase()}
-CRITERIA: ${UNIVERSE_DESCRIPTIONS[category]}
+Pick stocks with:
+- Strong fundamentals (good ROE, revenue growth, healthy margins)
+- Reasonable valuation (not overpriced PE)
+- Upcoming catalyst or current sector tailwind
+- Cover at least 4–5 different sectors
 
-List the stocks with their NSE ticker symbol. Ensure:
-- Spread across at least 6 sectors (banking, IT, pharma, auto, manufacturing, FMCG, energy, chemicals, etc.)
-- All genuinely in this market cap range
-- Have recent market activity in the last 30-60 days
-- Good liquidity on NSE (not illiquid penny stocks)
-
-List each stock as: TICKER — Company Name — Sector` }]
-      }],
+List each as: NSE_TICKER — Company Name — Sector — Why interesting now` }] }],
       tools: [{ google_search: {} }],
-      generationConfig: { temperature: 0.1, maxOutputTokens: 3000 },
+      generationConfig: { temperature: 0.2, maxOutputTokens: 2000 },
     }),
   });
-  if (!r1.ok) throw new Error(`Universe search failed: HTTP ${r1.status}`);
-  const stockText = extractGeminiText(await r1.json());
-  if (!stockText || stockText.length < 100) throw new Error("Gemini returned too little data for universe");
+  if (!r1.ok) {
+    const e = await r1.json().catch(() => ({}));
+    throw new Error((e as { error?: { message?: string } })?.error?.message ?? `HTTP ${r1.status}`);
+  }
+  const pickText = extractGeminiText(await r1.json());
+  if (!pickText || pickText.length < 50) throw new Error("Gemini returned no picks — try again");
 
-  // ── Step 2: Extract ONLY the NSE tickers → forced JSON array ──────────────
+  // Step 2 — Extract ONLY the NSE tickers as a clean JSON array
   const r2 = await fetch(GEMINI_URL(apiKey), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      contents: [{
-        parts: [{ text: `Extract every NSE stock ticker symbol from the text below and return them as a JSON array.
-Output ONLY the JSON array of strings, nothing else.
+      contents: [{ parts: [{ text:
+        `Extract ONLY the NSE ticker symbols from the stock list below. Return a JSON array of strings. Nothing else — no explanation, no markdown.
 
-TEXT:
-${stockText}
+${pickText}
 
-Rules:
-- Uppercase NSE tickers only (e.g. "RELIANCE", "HDFCBANK", "INFY")
-- No .NS suffix, no exchange prefix
-- Remove duplicates
-- No invalid entries` }]
-      }],
-      generationConfig: {
-        temperature: 0.0,
-        maxOutputTokens: 1500,
-        responseMimeType: "application/json",
-      },
+Format: ["TICKER1","TICKER2",...] — uppercase NSE tickers, no .NS suffix.` }] }],
+      generationConfig: { temperature: 0.0, maxOutputTokens: 400, responseMimeType: "application/json" },
     }),
   });
-  if (!r2.ok) throw new Error(`Ticker extraction failed: HTTP ${r2.status}`);
-  const jsonText = extractGeminiText(await r2.json());
-  if (!jsonText) throw new Error("Empty ticker extraction response");
-
-  const clean = jsonText.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
+  if (!r2.ok) throw new Error(`Ticker extract HTTP ${r2.status}`);
+  const raw = extractGeminiText(await r2.json());
+  const clean = raw.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
   const s = clean.indexOf("["), e = clean.lastIndexOf("]");
-  if (s === -1 || e === -1) throw new Error("No ticker array found in extraction response");
+  if (s === -1 || e === -1) throw new Error("Could not extract tickers from Gemini response");
   const tickers = JSON.parse(clean.slice(s, e + 1)) as string[];
-  if (!Array.isArray(tickers) || tickers.length < 10) throw new Error(`Only ${tickers.length} tickers returned — too few`);
-
-  // Sanitise: uppercase, strip .NS, keep only valid NSE ticker characters
+  if (!Array.isArray(tickers) || tickers.length === 0) throw new Error("No tickers returned");
   return [
     ...new Set(
       tickers
-        .map((t) => String(t).toUpperCase().replace(/\.NS$/i, "").replace(/\s/g, "").trim())
+        .map((t) => String(t).toUpperCase().replace(/\.NS$/i, "").trim())
         .filter((t) => t.length >= 2 && t.length <= 20 && /^[A-Z0-9&-]+$/.test(t))
     ),
   ];
 }
+
 
 const CAP_CONFIG: Record<CapCategory, {
   label: string; icon: React.ElementType; description: string;
@@ -543,9 +532,9 @@ export function PicksPanel({ onNavigateToResearch }: PicksPanelProps) {
     const config = CAP_CONFIG[category];
 
     try {
-      // ── Step 1: get universe (Gemini dynamic → Supabase cached → hardcoded fallback) ──
-      let universe: string[] = UNIVERSES[category]; // default fallback
-      let universeSource = "curated";
+      // ── Get 15 stocks from Gemini (or Supabase cache), fallback to hardcoded ──
+      let tickers: string[];
+      let source = "curated";
 
       if (apiKey) {
         const hasSB = !!getSupabaseConfig();
@@ -553,41 +542,39 @@ export function PicksPanel({ onNavigateToResearch }: PicksPanelProps) {
           if (hasSB && !force) {
             const cached = await getUniverse(category);
             if (cached && cached.length > 0) {
-              universe = cached;
-              universeSource = "cached";
+              tickers = cached;
+              source = "cached";
             } else {
-              universe = await fetchDynamicUniverse(apiKey, category);
-              await saveUniverse(category, universe);
-              universeSource = "gemini-live";
+              tickers = await getGeminiPicks(apiKey, category);
+              await saveUniverse(category, tickers);
+              source = "live";
             }
           } else {
-            universe = await fetchDynamicUniverse(apiKey, category);
-            if (hasSB) await saveUniverse(category, universe);
-            universeSource = "gemini-live";
+            tickers = await getGeminiPicks(apiKey, category);
+            if (hasSB) await saveUniverse(category, tickers);
+            source = "live";
           }
         } catch {
-          // Gemini failed — silently fall back to hardcoded list
-          universe = UNIVERSES[category];
-          universeSource = "curated-fallback";
+          tickers = UNIVERSES[category]; // fallback if Gemini fails
+          source = "curated";
         }
+      } else {
+        tickers = UNIVERSES[category];
       }
 
-      // ── Step 2: batch-fetch Yahoo Finance quotes ──────────────────────────
-      const BATCH = 6;
+      // ── Fetch real Yahoo Finance data for each ticker ────────────────────
+      const BATCH = 5;
       const quotes: { ticker: string; quote: StockQuote | null }[] = [];
-
-      for (let i = 0; i < universe.length; i += BATCH) {
-        const batch = universe.slice(i, i + BATCH);
+      for (let i = 0; i < tickers.length; i += BATCH) {
+        const batch = tickers.slice(i, i + BATCH);
         const results = await Promise.allSettled(
-          batch.map(async (ticker) => ({ ticker, quote: await fetchQuote(ticker + ".NS") }))
+          batch.map(async (t) => ({ ticker: t, quote: await fetchQuote(t + ".NS") }))
         );
-        for (const r of results) {
-          if (r.status === "fulfilled") quotes.push(r.value);
-        }
-        if (i + BATCH < universe.length) await new Promise((r) => setTimeout(r, 300));
+        for (const r of results) if (r.status === "fulfilled") quotes.push(r.value);
+        if (i + BATCH < tickers.length) await new Promise((r) => setTimeout(r, 300));
       }
 
-      // ── Step 3: score and filter ──────────────────────────────────────────
+      // ── Score + show all that pass threshold ────────────────────────────
       const scored: ScoredStock[] = quotes
         .filter((q) => q.quote != null && q.quote.cmp > 0)
         .map(({ quote }) => {
@@ -601,19 +588,15 @@ export function PicksPanel({ onNavigateToResearch }: PicksPanelProps) {
         .sort((a, b) => b.score - a.score);
 
       if (scored.length === 0) {
-        setPicksError(
-          universeSource === "gemini-live"
-            ? "No stocks from Gemini's live universe passed the score filters right now. Markets may be broadly overvalued in this category — try refreshing or a different category."
-            : "No stocks passed the screener filters. The screener is intentionally strict — try refreshing or check another category."
-        );
+        setPicksError("No stocks passed the score filters. Try refreshing — Gemini may pick different stocks next time.");
       }
       setPicksCache((prev) => ({ ...prev, [category]: scored }));
       setPicksTime((prev) => ({
         ...prev,
-        [category]: universeSource === "gemini-live"
-          ? `Gemini live · ${new Date().toLocaleTimeString("en-IN")}`
-          : universeSource === "cached"
-          ? `Cached universe · ${new Date().toLocaleTimeString("en-IN")}`
+        [category]: source === "live"
+          ? `Gemini picks · ${new Date().toLocaleTimeString("en-IN")}`
+          : source === "cached"
+          ? `Cached picks · ${new Date().toLocaleTimeString("en-IN")}`
           : new Date().toLocaleTimeString("en-IN"),
       }));
     } catch (err) {
@@ -770,10 +753,10 @@ export function PicksPanel({ onNavigateToResearch }: PicksPanelProps) {
             <div className="flex items-start gap-2">
               <Info className="h-3.5 w-3.5 text-muted-foreground shrink-0 mt-0.5" />
               <p className="text-[11px] text-muted-foreground leading-relaxed">
-                <strong className="text-foreground">Live screener:</strong>{" "}
+                <strong className="text-foreground">{apiKey ? "Gemini picks + real data:" : "Screener:"}</strong>{" "}
                 {apiKey
-                  ? "Gemini + Google Search selects 35 relevant NSE stocks per category based on today's market conditions. Real Yahoo Finance data is then fetched and scored on ROE, margins, PE, revenue growth. Shows all stocks that pass the score threshold."
-                  : "Add a Gemini API key in Research tab to unlock dynamic stock selection. Without it, uses a curated static list."}
+                  ? "Gemini searches NSE/Screener.in and picks 15 best stocks for this category right now. Real Yahoo Finance data is then fetched and scored. Picks cached in Supabase for 24h."
+                  : "Add a Gemini API key in Research tab so AI can pick real current stocks. Without it, uses a curated static list."}
               </p>
             </div>
           </Card>
@@ -796,7 +779,7 @@ export function PicksPanel({ onNavigateToResearch }: PicksPanelProps) {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-xs text-muted-foreground">{cfg.description}</p>
-              <p className="text-[10px] text-muted-foreground/60">Horizon: {cfg.horizon} · {apiKey ? "Gemini-selected universe" : `${UNIVERSES[activeCapTab].length} curated stocks`} · Min score: {cfg.minScore} · Showing all qualifiers</p>
+              <p className="text-[10px] text-muted-foreground/60">Horizon: {cfg.horizon} · {apiKey ? "Gemini picks 15 stocks" : `${UNIVERSES[activeCapTab].length} curated`} · Min score: {cfg.minScore}</p>
             </div>
             <div className="flex items-center gap-2 shrink-0">
               {picksTime[activeCapTab] && <span className="text-[10px] text-muted-foreground">{picksTime[activeCapTab]}</span>}
@@ -811,7 +794,7 @@ export function PicksPanel({ onNavigateToResearch }: PicksPanelProps) {
             <div className="space-y-3">
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <div className="h-3 w-3 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-                {apiKey ? "Gemini selecting stocks → fetching live data → scoring..." : `Fetching and scoring ${UNIVERSES[activeCapTab].length} stocks with live data...`}
+                {apiKey ? "Gemini picking stocks → fetching live prices → scoring..." : `Fetching live data for ${UNIVERSES[activeCapTab].length} stocks...`}
               </div>
               <LoadingGrid />
             </div>
