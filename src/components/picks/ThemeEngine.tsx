@@ -682,60 +682,91 @@ interface LiveTheme {
 }
 
 async function generateLiveThemes(apiKey: string): Promise<LiveTheme[]> {
-  const prompt = `Today is ${new Date().toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" })}. 
-  
-Use Google Search to find the TOP 4 macro/sector events currently happening in Indian markets RIGHT NOW that will have the biggest stock impact in the next 1-6 months. Look for: RBI decisions, government policy announcements, global commodity moves, FII flows, sector-specific news, budget updates, PLI scheme launches, geopolitical triggers.
+  const today = new Date().toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" });
 
-For each event, identify which NSE-listed Indian stocks benefit directly, benefit indirectly, and should be avoided.
+  // ── Step 1: Search for current events — free text, no JSON constraint ───────
+  // (responseMimeType does NOT work with google_search, so we get free text here)
+  const r1 = await fetch(GEMINI_URL(apiKey), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{
+        parts: [{ text: `Today is ${today}. Search Indian financial news (Moneycontrol, ET Markets, Livemint, BSE/NSE) for the 4 most impactful macro/sector events actively playing out in Indian equity markets right now (last 3 weeks).
 
-Return ONLY a valid JSON array (no markdown, no backticks):
-[
-  {
-    "headline": "Short title",
-    "category": "Macro|Policy|Sector|Global",
-    "trigger": "Specific event description with data/numbers",
-    "magnitude": "High|Medium|Low",
-    "timeframe": "Immediate (days)|Medium term (3-6 months)|Long term (1-2Y)",
-    "directBeneficiaries": [
-      {"ticker": "NSE_TICKER", "reason": "Specific reason why this stock benefits with data"}
-    ],
-    "indirectBeneficiaries": [
-      {"ticker": "NSE_TICKER", "reason": "Second-order benefit reason"}
-    ],
-    "avoid": [
-      {"ticker": "NSE_TICKER", "reason": "Why this stock gets hurt"}
-    ],
-    "historicalNote": "Historical precedent from Indian markets"
+For each event write:
+EVENT: [short title]
+CATEGORY: [Macro / Policy / Sector / Global]
+WHAT IS HAPPENING: [specific trigger with real numbers and dates]
+MAGNITUDE: [High / Medium / Low]
+TIMELINE: [e.g. "Medium term 3-6 months"]
+DIRECT BENEFICIARIES: [3 NSE tickers with reason each — format: TICKER: reason]
+INDIRECT BENEFICIARIES: [3 NSE tickers with reason each — format: TICKER: reason]
+AVOID: [2 NSE tickers with reason each — format: TICKER: reason]
+HISTORICAL NOTE: [a past Indian market precedent]
+---` }]
+      }],
+      tools: [{ google_search: {} }],
+      generationConfig: { temperature: 0.2, maxOutputTokens: 5000 },
+    }),
+  });
+  if (!r1.ok) {
+    const e = await r1.json().catch(() => ({}));
+    throw new Error((e as { error?: { message?: string } })?.error?.message ?? `Search failed: HTTP ${r1.status}`);
   }
-]
+  const analysis = extractText(await r1.json());
+  if (!analysis || analysis.length < 200) throw new Error("Gemini returned too little data — try again");
 
-Rules:
-- Each event must be ACTUALLY HAPPENING today — not hypothetical
-- Give 3-4 direct beneficiaries, 3-4 indirect, 2-3 to avoid per theme
-- All tickers must be valid NSE tickers
-- Use real current data (crude price, RBI rate, etc.)`;
+  // ── Step 2: Convert free text → structured JSON (no search, force JSON mime) ─
+  const r2 = await fetch(GEMINI_URL(apiKey), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{
+        parts: [{ text: `Convert the following Indian stock market analysis into a JSON array matching this exact schema. Output only the JSON array, no other text.
 
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        tools: [{ google_search: {} }],
-        generationConfig: { temperature: 0.2, maxOutputTokens: 3000, thinkingConfig: { thinkingBudget: 0 } },
-      }),
-    }
-  );
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const data = await res.json();
-  const parts = (data as { candidates?: Array<{ content?: { parts?: Array<{ text?: string; thought?: boolean }> } }> })
-    ?.candidates?.[0]?.content?.parts ?? [];
-  const text = parts.filter((p) => typeof p.text === "string" && !p.thought).map((p) => p.text as string).join("");
-  const clean = text.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
-  const start = clean.indexOf("["); const end = clean.lastIndexOf("]");
-  if (start === -1 || end === -1) throw new Error("No JSON array in response");
-  return JSON.parse(clean.slice(start, end + 1)) as LiveTheme[];
+ANALYSIS TO CONVERT:
+${analysis}
+
+JSON SCHEMA:
+[{
+  "headline": "string — short event title",
+  "category": "Macro" | "Policy" | "Sector" | "Global",
+  "trigger": "string — what is happening with specific numbers",
+  "magnitude": "High" | "Medium" | "Low",
+  "timeframe": "string",
+  "directBeneficiaries": [{"ticker": "NSE_TICKER", "reason": "string"}],
+  "indirectBeneficiaries": [{"ticker": "NSE_TICKER", "reason": "string"}],
+  "avoid": [{"ticker": "NSE_TICKER", "reason": "string"}],
+  "historicalNote": "string"
+}]
+
+Rules: tickers must be uppercase NSE symbols without .NS` }]
+      }],
+      generationConfig: {
+        temperature: 0.0,
+        maxOutputTokens: 4000,
+        responseMimeType: "application/json",
+      },
+    }),
+  });
+  if (!r2.ok) {
+    const e = await r2.json().catch(() => ({}));
+    throw new Error((e as { error?: { message?: string } })?.error?.message ?? `Structure call HTTP ${r2.status}`);
+  }
+  const jsonText = extractText(await r2.json());
+  if (!jsonText) throw new Error("Empty JSON response from structure step");
+
+  const clean = jsonText.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
+  const s = clean.indexOf("["), e2 = clean.lastIndexOf("]");
+  if (s === -1 || e2 === -1) throw new Error(`No JSON array found in: ${clean.slice(0, 200)}`);
+  let parsed: LiveTheme[];
+  try {
+    parsed = JSON.parse(clean.slice(s, e2 + 1)) as LiveTheme[];
+  } catch (err) {
+    throw new Error(`JSON parse failed: ${err instanceof Error ? err.message : "unknown"}. Snippet: ${clean.slice(s, s + 300)}`);
+  }
+  if (!Array.isArray(parsed) || parsed.length === 0) throw new Error("Parsed array is empty");
+  return parsed;
 }
 
 // ─── Live Theme Card ───────────────────────────────────────────────────────────
@@ -862,18 +893,22 @@ export function ThemeEngine({ apiKey, onNavigateToResearch }: ThemeEngineProps) 
   const [liveThemes, setLiveThemes] = useState<LiveTheme[]>([]);
   const [liveLoading, setLiveLoading] = useState(false);
   const [liveTime, setLiveTime] = useState<string | null>(null);
+  const [liveError, setLiveError] = useState<string | null>(null);
 
   const handleGenerateLiveThemes = async (force = false) => {
     if (!apiKey) { toast.error("Add Gemini API key to generate live themes"); return; }
     if (!force && liveThemes.length > 0) { setFilter("Live AI"); return; }
     setLiveLoading(true);
+    setLiveError(null);
     setFilter("Live AI");
     try {
       const themes = await generateLiveThemes(apiKey);
       setLiveThemes(themes);
       setLiveTime(new Date().toLocaleTimeString("en-IN"));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to generate live themes");
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      setLiveError(msg);
+      toast.error("Live themes failed — see error below");
     } finally {
       setLiveLoading(false);
     }
@@ -990,6 +1025,16 @@ export function ThemeEngine({ apiKey, onNavigateToResearch }: ThemeEngineProps) 
                 Gemini-generated using live Google Search · Refresh to get the latest · {liveTime}
               </p>
             </div>
+          )}
+
+          {!liveLoading && liveError && (
+            <Card className="p-4 border-destructive/30 space-y-2">
+              <p className="text-xs font-medium text-destructive">Generation failed</p>
+              <p className="text-[11px] text-muted-foreground font-mono">{liveError}</p>
+              <Button size="sm" variant="outline" onClick={() => handleGenerateLiveThemes(true)} className="gap-1.5 text-xs">
+                <RefreshCw className="h-3 w-3" /> Retry
+              </Button>
+            </Card>
           )}
 
           {!liveLoading && liveThemes.length === 0 && apiKey && (
